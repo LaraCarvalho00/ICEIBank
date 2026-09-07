@@ -80,18 +80,66 @@ Implicações:
 precisa da lógica de `aoEnviar()`/`aoReceber()` do relógio de Lamport, enquanto a
 transferência entre agências precisa?**
 
-_(responder)_
+As regras 2 e 3 de Lamport (`ao_enviar` / `ao_receber`) só existem para ordenar
+um evento de **um processo** em relação a um evento de **outro processo** - ou
+seja, quando há troca de mensagem entre processos que têm contadores
+independentes.
+
+- **Transferência local:** débito e crédito acontecem no **mesmo processo** (a
+  mesma agência, o mesmo contador). São dois eventos locais consecutivos -
+  `evento_local()` para o débito, `evento_local()` para o crédito. O próprio
+  incremento sequencial já garante `ts(débito) < ts(crédito)`. Nenhuma mensagem
+  cruza a fronteira de processo, então não há timestamp externo para reconciliar.
+- **Transferência entre agências:** o crédito acontece em **outro processo**, com
+  outro contador que evoluiu de forma independente. A origem chama `ao_enviar()`
+  (regra 2) para carimbar a mensagem com seu contador; o destino chama
+  `ao_receber(ts)` (regra 3): `max(contador_local, ts) + 1`. Sem isso, o crédito
+  remoto poderia ganhar um timestamp **menor** que o do débito que o causou,
+  quebrando a relação causal "o débito aconteceu antes do crédito".
+
+Isto aparece no `demos/02-transferencia-entre-agencias.sh`: a Ag0 debita em
+`ts=2` e envia com `ts=3`; a Ag1, que estava em `ts=1`, recebe e registra o
+crédito remoto em `ts = max(1, 3) + 1 = 4`.
 
 **2. Reproduza a falha conhecida e observe o saldo da conta de origem depois do
 erro. Ele foi revertido? O que isso significa em termos de consistência do
 sistema bancário?**
 
-_(responder)_
+**Não foi revertido.** No teste (`demos/03-falha-conhecida.sh`), a conta 0 foi de
+**100 para 75** e ficou em 75, mesmo com a transferência retornando **HTTP 502** e
+a conta 1 nunca tendo sido creditada. Os R$ 25 "desapareceram": não estão mais na
+origem e nunca chegaram ao destino.
+
+Em termos de consistência, o sistema violou:
+
+- a **atomicidade** da operação (uma transferência deveria ser tudo-ou-nada);
+- a **conservação do dinheiro total** - invariante do domínio bancário: numa
+  transferência, a soma dos saldos deveria permanecer constante.
+
+O sistema não corrompeu **silenciosamente** - ele gravou o evento
+`TRANSFERENCIA_FALHOU` no log -, mas **registrar não é reparar**. Esse é
+exatamente o problema que o Sprint 4 resolve.
 
 **3. Pensando à frente para o Sprint 4: cite, em alto nível, duas formas
 possíveis de corrigir esse problema.**
 
-_(responder)_
+1. **Commit em duas fases (2PC).** Um coordenador (a agência de origem ou um
+   serviço à parte) primeiro pergunta a todas as partes se conseguem executar
+   (fase *prepare*): a origem **reserva** os R$ 25 sem efetivar, o destino
+   confirma que a conta existe e pode receber. Só se **todas** responderem "sim"
+   o coordenador manda *commit* e cada parte efetiva; se qualquer uma falhar ou
+   não responder, manda *abort* e todas desfazem. O débito só se torna definitivo
+   quando o crédito já está garantido.
+2. **Saga com compensação.** A transferência vira uma sequência de passos locais,
+   cada um com uma ação compensatória. Passo 1: debitar a origem (compensação:
+   creditar de volta). Passo 2: creditar o destino. Se o passo 2 falhar, a saga
+   dispara a compensação do passo 1 (estorna o débito), devolvendo o sistema a um
+   estado consistente. Não dá isolamento como o 2PC, mas não trava recursos
+   esperando e tolera melhor agências lentas ou instáveis.
+
+*(Variante mais simples: tornar `creditar-remoto` idempotente e a origem
+re-tentar em background até receber o ACK do destino, mantendo o débito como
+"pendente" e só o consolidando depois - na prática, uma Saga com retry.)*
 
 ---
 
