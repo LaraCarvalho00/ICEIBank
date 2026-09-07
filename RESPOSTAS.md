@@ -382,10 +382,10 @@ vez de só um erro no console.
   no `localStorage`), `auth.js` (login) e `contas.js` (`consultarSaldo`,
   `depositar`, `sacar`, `transferir`, `criarConta`, `agenciaDaConta`). É onde
   mora "o que o sistema faz" e o acesso ao estado persistido.
-- **View - `src/componentes/`.** `Login`, `ConsultaSaldo`, `FormValor` (reusado
-  em Depósito e Saque), `FormTransferencia`, `Mensagem`. Componentes de
-  apresentação: renderizam, capturam entrada, recebem tudo por props e avisam o
-  pai por callbacks; não sabem como a API funciona.
+- **View - `src/componentes/`.** `Login`, `FormCriarConta`, `ConsultaSaldo`,
+  `FormValor` (reusado em Depósito e Saque), `FormTransferencia`, `Mensagem`.
+  Componentes de apresentação: renderizam, capturam entrada, recebem tudo por
+  props e avisam o pai por callbacks; não sabem como a API funciona.
 - **Controller - `src/App.jsx`.** Guarda o estado da tela (autenticado, agência,
   conta consultada, mensagem, "ocupado"), liga os eventos da View às funções do
   Model (`aoEntrar`, `aoConsultar`, `aoDepositar`, `aoSacar`, `aoTransferir`) e

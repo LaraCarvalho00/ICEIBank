@@ -19,6 +19,7 @@ import * as contasApi from './api/contas.js'
 import Login from './componentes/Login.jsx'
 import Mensagem from './componentes/Mensagem.jsx'
 import ConsultaSaldo from './componentes/ConsultaSaldo.jsx'
+import FormCriarConta from './componentes/FormCriarConta.jsx'
 import FormValor from './componentes/FormValor.jsx'
 import FormTransferencia from './componentes/FormTransferencia.jsx'
 
@@ -69,6 +70,14 @@ export default function App() {
     setAutenticado(false)
     setConta(null)
     ok('Você saiu.')
+  }
+
+  async function aoCriar(id, nomeAluno, saldoInicial) {
+    const c = await executar(
+      () => contasApi.criarConta(id, nomeAluno, saldoInicial),
+      (c) => `Conta ${c.id} criada para ${c.nomeAluno}. Saldo: R$ ${Number(c.saldo).toFixed(2)}`,
+    )
+    if (c) setConta(c)
   }
 
   async function aoConsultar(id) {
@@ -134,6 +143,7 @@ export default function App() {
         <Login aoEntrar={aoEntrar} ocupado={ocupado} />
       ) : (
         <main className="grade">
+          <FormCriarConta aoCriar={aoCriar} agenciaAtual={agencia} />
           <ConsultaSaldo aoConsultar={aoConsultar} conta={conta} agenciaAtual={agencia} />
           <FormValor titulo="Depósito" rotuloBotao="Depositar" aoEnviar={aoDepositar} />
           <FormValor titulo="Saque" rotuloBotao="Sacar" aoEnviar={aoSacar} />
