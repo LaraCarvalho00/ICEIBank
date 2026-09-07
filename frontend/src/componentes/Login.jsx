@@ -26,7 +26,7 @@ export default function Login({ aoEntrar, ocupado }) {
         />
       </label>
       <button disabled={ocupado}>{ocupado ? 'Entrando…' : 'Entrar'}</button>
-      <p className="dica">Usuários de teste: <code>lara</code> / <code>allan</code> — senha <code>iceibank</code></p>
+      <p className="dica">Ambiente de avaliação · usuários <code>lara</code> ou <code>allan</code>, senha <code>iceibank</code></p>
     </form>
   )
 }

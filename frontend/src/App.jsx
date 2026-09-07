@@ -115,25 +115,43 @@ export default function App() {
     )
   }
 
+  const hostAgencia = new URL(
+    (AGENCIAS.find((a) => a.id === agencia) || AGENCIAS[0]).url,
+  ).host
+
   return (
     <div className="app">
       <header>
-        <h1>ICEIBank</h1>
+        <span className="marca">
+          <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="9" fill="#00c896" />
+            <rect x="8" y="17" width="4" height="7" rx="1" fill="#04140f" />
+            <rect x="14" y="12" width="4" height="12" rx="1" fill="#04140f" />
+            <rect x="20" y="8" width="4" height="16" rx="1" fill="#04140f" />
+          </svg>
+          ICEI<span className="b">Bank</span>
+        </span>
         <div className="ferramentas">
-          <label>
-            Agência de entrada:{' '}
+          <div className="seletor-agencia">
+            <label htmlFor="ag">Agência</label>
             <select
+              id="ag"
               value={agencia}
               onChange={(e) => trocarAgencia(Number(e.target.value))}
             >
               {AGENCIAS.map((a) => (
                 <option key={a.id} value={a.id}>
-                  Agência {a.id} ({a.url})
+                  Agência {a.id}
                 </option>
               ))}
             </select>
-          </label>
-          {autenticado && <button onClick={sair}>Sair</button>}
+            <span className="conexao">{hostAgencia}</span>
+          </div>
+          {autenticado && (
+            <button className="ghost" onClick={sair}>
+              Sair
+            </button>
+          )}
         </div>
       </header>
 
@@ -151,7 +169,7 @@ export default function App() {
         </main>
       )}
 
-      <footer>ICEIBank · Sprint 1 — REST/MVC + Relógio de Lamport + JWT</footer>
+      <footer>Sprint 1 — REST/MVC · Relógio de Lamport · JWT</footer>
     </div>
   )
 }
