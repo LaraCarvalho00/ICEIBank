@@ -9,8 +9,10 @@ venv/
 # uv
 .uv/
 
-# Logs de execução das agências (gerados em runtime - não versionar)
-agencia/data/*.jsonl
+# Conteúdo de runtime das agências (logs .jsonl, saída dos processos .out).
+# A pasta é versionada só pelo README.
+agencia/data/*
+!agencia/data/README.md
 
 # Node / frontend
 node_modules/

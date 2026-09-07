@@ -150,18 +150,63 @@ re-tentar em background até receber o ACK do destino, mantendo o débito como
 prática quando você vê dois eventos com timestamps diferentes na linha do tempo,
 mas sem saber se um realmente influenciou o outro?**
 
-_(responder)_
+Significa que a ordem numérica dos timestamps **não é prova de causalidade**.
+Vendo `ts(A) < ts(B)`, há duas situações que o relógio de Lamport **não
+distingue**:
+
+- A de fato aconteceu antes de B e pode tê-lo influenciado (relação causal); ou
+- A e B são **concorrentes** (nenhum influenciou o outro), e o `<` é só efeito de
+  como os contadores avançaram - se as mensagens tivessem trafegado noutra ordem,
+  esse `<` poderia até se inverter.
+
+Ou seja, `ts(A) < ts(B)` autoriza dizer "B não aconteceu-antes de A", mas **não**
+autoriza dizer "A causou B". Para eventos sem ligação causal, quem ficou com o
+número menor é arbitrário.
 
 **2. O relógio de Lamport, sozinho, seria suficiente para um sistema que precisa
 distinguir com certeza "A e B são concorrentes" de "A aconteceu antes de B"? Por
 que isso motiva o relógio vetorial do Sprint 2?**
 
-_(responder)_
+Não seria suficiente. Com **um único inteiro por processo**, dado `ts(A) < ts(B)`
+não há como saber se existe um caminho causal de A até B ou se são concorrentes;
+e um empate `ts(A) == ts(B)` entre processos diferentes indica concorrência, mas
+a **ausência** de empate não indica causalidade. O relógio de Lamport comprime
+todo o histórico causal num número e **perde informação**.
 
-**Observação do passo 3 da tarefa (par de eventos empatados encontrado):**
+O **relógio vetorial** guarda um contador por processo (um vetor). Comparando os
+vetores de A e B decide-se com exatidão: se `V(A) < V(B)` em todas as
+componentes, então A → B (causal); se nem `V(A) ≤ V(B)` nem `V(B) ≤ V(A)`, então
+A e B são concorrentes. É essa capacidade de **detectar concorrência com
+certeza** que o Sprint 2 acrescenta.
 
-_(descrever o que foi observado: timestamps, horaParede, se são causais ou
-concorrentes)_
+**Observação do passo 3 da tarefa (execução de `demos/04-linha-do-tempo.sh`):**
+
+A linha do tempo mesclada trouxe vários timestamps repetidos:
+
+| Lamport | Eventos (agências diferentes) | Relação |
+|---|---|---|
+| 1 | `CRIAR_CONTA` em agencia-0, agencia-1 e agencia-2 | concorrentes |
+| 2 | `DEPOSITO` em agencia-0, agencia-1 e agencia-2 | concorrentes |
+| 3 | `TRANSFERENCIA_DEBITO` (agencia-0) e `SAQUE` (agencia-2) | concorrentes |
+
+Nenhum desses pares é causalmente relacionado: criar a conta 1 na agencia-1 não
+depende de criar a conta 0 na agencia-0, o saque na agencia-2 não depende do
+débito na agencia-0, etc. São operações independentes que por acaso caíram no
+mesmo ponto do contador de cada agência.
+
+**A ordem por `horaParede` NÃO coincide com a ordem da lista:**
+
+- No `[Lamport 2]`, os três depósitos têm `horaParede` `...053805` (ag0),
+  `...053810` (ag2) e `...053870` (ag1) - fisicamente a ordem foi ag0, ag2, ag1,
+  mas a lista (ordenada por Lamport e depois por nome) mostra ag0, ag1, ag2.
+- O evento `[Lamport 5]` (`TRANSFERENCIA_CREDITO_REMOTO` na agencia-1) tem
+  `horaParede` `...080073`, **anterior** ao `[Lamport 3]` `SAQUE` da agencia-2
+  (`...087043`). Pelo relógio físico o evento de Lamport 5 aconteceu antes do de
+  Lamport 3 - e isso **não é um erro**: os dois são concorrentes, então nenhuma
+  das duas ordens é "a certa". O relógio de Lamport só se compromete a respeitar
+  a ordem de eventos **causalmente ligados** (ex.: o `TRANSFERENCIA_DEBITO` de
+  Lamport 3 na agencia-0 vem antes do `TRANSFERENCIA_CREDITO_REMOTO` de Lamport 5
+  na agencia-1, que é o seu efeito).
 
 ---
 
