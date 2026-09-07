@@ -17,10 +17,12 @@ req POST "$AG1/contas" '{"id":1,"nomeAluno":"Bia","saldoInicial":100}'
 req POST "$AG2/contas" '{"id":2,"nomeAluno":"Caio","saldoInicial":100}'
 
 titulo "Rodada 2: um deposito em cada agencia, disparados quase ao mesmo tempo (ts=2)"
-curl -s -o /dev/null -X POST "$AG0/contas/0/depositar" -H "$CT" -d '{"valor":10}' &
-curl -s -o /dev/null -X POST "$AG1/contas/1/depositar" -H "$CT" -d '{"valor":10}' &
-curl -s -o /dev/null -X POST "$AG2/contas/2/depositar" -H "$CT" -d '{"valor":10}' &
+AUTH="Authorization: Bearer $TOKEN"
+curl -s -o /dev/null -X POST "$AG0/contas/0/depositar" -H "$AUTH" -H "$CT" -d '{"valor":10}' &
+curl -s -o /dev/null -X POST "$AG1/contas/1/depositar" -H "$AUTH" -H "$CT" -d '{"valor":10}' &
+curl -s -o /dev/null -X POST "$AG2/contas/2/depositar" -H "$AUTH" -H "$CT" -d '{"valor":10}' &
 wait
+echo "(3 depositos concorrentes enviados)"
 
 titulo "Rodada 3: transferencia entre agencias 0 -> 1 (mensagem: ao_enviar/ao_receber)"
 req POST "$AG0/transferencias" '{"idOrigem":0,"idDestino":1,"valor":25}'

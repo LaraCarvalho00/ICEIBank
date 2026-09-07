@@ -58,6 +58,23 @@ AGENCIA_ID=2 uv run uvicorn src.main:app --port 4002
 
 Documentação interativa de cada agência em `http://localhost:400X/docs`.
 
+### Autenticação (JWT)
+
+As rotas de conta e `/transferencias` exigem `Authorization: Bearer <token>`.
+Obtenha um token em `POST /auth/login` (usuários de teste: `lara` / `allan`,
+senha `iceibank`):
+
+```bash
+curl -s -X POST http://localhost:4000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"usuario":"lara","senha":"iceibank"}'
+```
+
+Variáveis de ambiente opcionais: `JWT_SEGREDO` (troque em produção),
+`JWT_EXPIRACAO_MIN` (padrão 30), `SENHA_LARA`, `SENHA_ALLAN`.
+A chamada interna `creditar-remoto` usa um token de escopo `interno` emitido
+pela agência de origem (ver `RESPOSTAS.md` - Parte F).
+
 Linha do tempo unificada (depois de gerar alguns eventos):
 
 ```bash

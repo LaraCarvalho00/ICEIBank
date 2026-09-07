@@ -181,7 +181,9 @@ certeza** que o Sprint 2 acrescenta.
 
 **Observação do passo 3 da tarefa (execução de `demos/04-linha-do-tempo.sh`):**
 
-A linha do tempo mesclada trouxe vários timestamps repetidos:
+A linha do tempo mesclada trouxe vários timestamps de Lamport repetidos, vindos
+de agências diferentes (os valores de `horaParede` abaixo variam a cada
+execução - estes são de uma execução real):
 
 | Lamport | Eventos (agências diferentes) | Relação |
 |---|---|---|
@@ -191,22 +193,24 @@ A linha do tempo mesclada trouxe vários timestamps repetidos:
 
 Nenhum desses pares é causalmente relacionado: criar a conta 1 na agencia-1 não
 depende de criar a conta 0 na agencia-0, o saque na agencia-2 não depende do
-débito na agencia-0, etc. São operações independentes que por acaso caíram no
-mesmo ponto do contador de cada agência.
+débito na agencia-0. São operações independentes que por acaso caíram no mesmo
+ponto do contador de cada agência.
 
-**A ordem por `horaParede` NÃO coincide com a ordem da lista:**
+**A ordem por `horaParede` NÃO coincide com a ordem da linha do tempo:**
 
-- No `[Lamport 2]`, os três depósitos têm `horaParede` `...053805` (ag0),
-  `...053810` (ag2) e `...053870` (ag1) - fisicamente a ordem foi ag0, ag2, ag1,
-  mas a lista (ordenada por Lamport e depois por nome) mostra ag0, ag1, ag2.
-- O evento `[Lamport 5]` (`TRANSFERENCIA_CREDITO_REMOTO` na agencia-1) tem
-  `horaParede` `...080073`, **anterior** ao `[Lamport 3]` `SAQUE` da agencia-2
-  (`...087043`). Pelo relógio físico o evento de Lamport 5 aconteceu antes do de
-  Lamport 3 - e isso **não é um erro**: os dois são concorrentes, então nenhuma
-  das duas ordens é "a certa". O relógio de Lamport só se compromete a respeitar
-  a ordem de eventos **causalmente ligados** (ex.: o `TRANSFERENCIA_DEBITO` de
-  Lamport 3 na agencia-0 vem antes do `TRANSFERENCIA_CREDITO_REMOTO` de Lamport 5
-  na agencia-1, que é o seu efeito).
+- No `[Lamport 3]`, o `TRANSFERENCIA_DEBITO` da agencia-0 tem `horaParede`
+  `...930780` e o `SAQUE` da agencia-2 tem `...950166`: os dois compartilham o
+  timestamp de Lamport 3, mesmo tendo acontecido em instantes físicos
+  diferentes - são concorrentes.
+- O evento `[Lamport 5]` (`TRANSFERENCIA_CREDITO_REMOTO` na agencia-1,
+  `horaParede ...943366`) aparece na lista **depois** do `[Lamport 3]` `SAQUE` da
+  agencia-2 (`horaParede ...950166`), mas pelo relógio **físico** o evento de
+  Lamport 5 aconteceu **antes**. Isso **não é um erro**: os dois são
+  concorrentes, então nenhuma das duas ordens é "a certa". O relógio de Lamport
+  só se compromete a respeitar a ordem de eventos **causalmente ligados** - por
+  exemplo, o `TRANSFERENCIA_DEBITO` de Lamport 3 (agencia-0) vem antes do
+  `TRANSFERENCIA_CREDITO_REMOTO` de Lamport 5 (agencia-1), que é o seu efeito
+  direto.
 
 ---
 
@@ -216,12 +220,43 @@ mesmo ponto do contador de cada agência.
 
 **Formato das credenciais escolhido e por quê:**
 
-_(responder)_
+**Usuário + senha** (os integrantes: `lara` e `allan`). É o modelo mais familiar
+e suficiente para o escopo. Como não há cadastro nem banco de dados neste sprint,
+o store de usuários é fixo em memória (`agencia/src/seguranca.py`), mas as senhas
+**não** ficam em texto puro: cada uma é guardada como hash
+**PBKDF2-HMAC-SHA256** com 200 000 iterações e um **salt aleatório por usuário**,
+e a verificação usa comparação em tempo constante (`hmac.compare_digest`).
+Usuário inexistente ainda gasta o tempo de um hash, para não virar um oráculo de
+timing. Em produção, esse store viria de um banco e o algoritmo seria bcrypt ou
+argon2.
+
+Não escolhemos "id de conta + senha" porque um mesmo aluno pode ter várias
+contas (inclusive em agências diferentes): quem se autentica é a **pessoa**, não
+a conta.
 
 **A chamada interna agência-a-agência (`creditar-remoto`) carrega token ou é
 tratada de forma diferente? Justificativa:**
 
-_(responder)_
+É tratada **de forma diferente**. O endpoint `creditar-remoto` exige um JWT de
+**escopo `"interno"`**, emitido pela própria agência de origem
+(`sub = "agencia-<id>"`), com validade curta (30 s) e assinado com o mesmo
+segredo. A dependency `requer_token_interno` rejeita (403) um token de usuário
+comum nesse endpoint.
+
+Não repassamos o token do usuário final por três motivos:
+
+1. A chamada é **máquina-a-máquina**; não há um "usuário" a ser representado ali
+   - quem age é a agência.
+2. Repassar o token do usuário **espalharia a credencial** dele para além do
+   necessário (mais superfície de vazamento) e **acoplaria** o sucesso de uma
+   operação interna ao tempo de vida da sessão do usuário (o token poderia
+   expirar no meio de uma transferência multi-salto).
+3. Um escopo dedicado deixa a **fronteira de confiança explícita**: o
+   `creditar-remoto` sabe que só aceita chamadas de outra agência.
+
+Alternativa também aceitável: deixar `creditar-remoto` sem autenticação,
+assumindo que as agências ficam numa rede isolada. Preferimos a autenticação
+explícita para não depender dessa suposição de topologia.
 
 ### Questões
 
@@ -229,18 +264,52 @@ _(responder)_
 verifica só uma das duas, ou as duas? Um usuário autenticado consegue sacar de
 uma conta que não é dele?**
 
-_(responder)_
+**Autenticação** é provar *quem você é* (aqui: apresentar usuário + senha no
+`/auth/login` e receber um token; depois, cada requisição prova a identidade pela
+assinatura do token). **Autorização** é decidir se essa identidade *pode* fazer
+aquela ação sobre aquele recurso.
+
+Nossa implementação faz **essencialmente só autenticação**: qualquer token
+válido pode operar qualquer conta da agência. Não há vínculo entre o `sub` do
+token e o dono da conta. Então **sim** - um usuário autenticado (ex.: `allan`)
+consegue sacar da conta da `lara`, porque não existe checagem de autorização por
+recurso. A única exceção de "autorização" na implementação é o `creditar-remoto`,
+que exige escopo `interno`. Corrigir o resto exigiria guardar o dono de cada
+conta e comparar com o `sub` do token antes de cada operação (fica como melhoria
+futura).
 
 **2. Por que o servidor não precisa consultar um banco de dados para validar a
 assinatura de um JWT a cada requisição? O que isso implica sobre escalabilidade
 comparado a guardar sessões em memória?**
 
-_(responder)_
+O JWT é **autocontido e assinado**. A assinatura HS256 é
+`HMAC-SHA256(header + "." + payload, segredo)`. Para validar, o servidor
+**recomputa** o HMAC com o segredo que só ele conhece e compara; se bater, o
+conteúdo não foi adulterado e veio de quem tem o segredo. Os dados de identidade
+(`sub`, `exp`) já estão dentro do token. Nada disso precisa de I/O - é só CPU.
+
+Implicação: **estado zero de sessão no servidor**. Qualquer instância de qualquer
+agência valida qualquer token sem coordenação e sem consultar um store
+compartilhado. Escala horizontalmente "de graça" e não tem o gargalo nem o ponto
+único de falha de um store de sessões. O preço: não dá para **revogar** um token
+antes de ele expirar (com sessão em memória, bastaria apagar a entrada). Por isso
+a expiração curta importa.
 
 **3. O que aconteceria com a segurança do sistema se a chave secreta usada para
 assinar o JWT vazasse?**
 
-_(responder)_
+Quem tiver o segredo pode **forjar tokens válidos arbitrários**: escolher
+qualquer `sub`, qualquer `escopo` (inclusive `interno`) e qualquer `exp` no
+futuro. O servidor aceitaria todos como legítimos, porque a única verificação é
+"a assinatura bate com o segredo". Na prática, o atacante se autentica como
+qualquer usuário e chama qualquer rota protegida - inclusive o `creditar-remoto`
+entre agências - e não há como distinguir o token forjado de um real.
+
+Mitigação: rotacionar o segredo imediatamente (isso invalida **todos** os tokens
+em circulação, inclusive os legítimos), manter segredos diferentes por ambiente,
+guardá-los fora do código (variável de ambiente / cofre de segredos, nunca
+commitados) e, idealmente, suportar rotação de chaves com `kid` no cabeçalho do
+token.
 
 ---
 

@@ -26,3 +26,8 @@ class CreditarRemotoIn(BaseModel):
     valor: float = Field(gt=0)
     timestampLamport: int
     origemAgencia: int
+
+
+class LoginIn(BaseModel):
+    usuario: str
+    senha: str

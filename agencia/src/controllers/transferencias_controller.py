@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from .. import config
 from ..esquemas import CreditarRemotoIn, TransferenciaIn
 from ..estado import ID_AGENCIA, contas, registro, relogio
+from ..seguranca import criar_token_interno
 
 
 def transferir(dados: TransferenciaIn) -> dict:
@@ -66,6 +67,9 @@ def transferir(dados: TransferenciaIn) -> dict:
     # ---- Caso 2: entre agências - chama a agência de destino via REST ----
     ts_envio = relogio.ao_enviar()  # regra 2: incrementa e anexa à mensagem
     url_destino = config.url_agencia(agencia_destino)
+    # Chamada agência-a-agência: token de escopo "interno", não o token do
+    # usuário final (ver justificativa em RESPOSTAS.md - Parte F).
+    cabecalhos = {"Authorization": f"Bearer {criar_token_interno(f'agencia-{ID_AGENCIA}')}"}
     try:
         resposta = httpx.post(
             f"{url_destino}/contas/{dados.idDestino}/creditar-remoto",
@@ -74,6 +78,7 @@ def transferir(dados: TransferenciaIn) -> dict:
                 "timestampLamport": ts_envio,
                 "origemAgencia": ID_AGENCIA,
             },
+            headers=cabecalhos,
             timeout=5.0,
         )
         resposta.raise_for_status()
