@@ -9,6 +9,7 @@ Rodar cada agência com um AGENCIA_ID diferente:
 Docs interativas: http://localhost:400X/docs
 """
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import estado
 from .rotas import router
@@ -18,6 +19,16 @@ app = FastAPI(
     description="Sprint 1 - API REST/MVC com relogio de Lamport",
     version="1.0.0",
 )
+
+# CORS: o frontend (Vite) roda em http://localhost:5173 e chama esta API em
+# outra porta. Config permissiva de desenvolvimento - restringir em producao.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(router)
 
 

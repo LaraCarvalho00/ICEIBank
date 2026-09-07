@@ -81,13 +81,22 @@ Linha do tempo unificada (depois de gerar alguns eventos):
 cd agencia && uv run python mesclar_logs.py
 ```
 
-Frontend:
+Frontend (com as 3 agências já rodando):
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev            # http://localhost:5173
 ```
+
+Login com `lara` / `iceibank`. O seletor "Agência de entrada" no topo escolhe
+qual das 3 agências responde (cada agência só conhece as contas sob sua
+responsabilidade: `id_conta % 3`).
+
+MVC do frontend: **Model** em `src/api/` (acesso à API, token, tratamento de
+erro), **View** em `src/componentes/` (formulários e banner de mensagem),
+**Controller** em `src/App.jsx` (estado + orquestração). Detalhes em
+`RESPOSTAS.md` - Parte G.
 
 ## Documentação da entrega
 

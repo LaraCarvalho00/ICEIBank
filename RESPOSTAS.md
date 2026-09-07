@@ -319,21 +319,65 @@ token.
 
 **Framework escolhido e forma de guardar o token:**
 
-_(responder)_
+**React + Vite** (JavaScript puro, sem TypeScript). Motivos: é o stack de
+frontend mais usado como referência, o Vite dá servidor de desenvolvimento
+rápido e build sem configuração, e ficar em JS puro reduz o número de peças para
+um sprint. O app é montado em `src/main.jsx`; a árvore fica em `src/App.jsx`.
+
+**Token guardado no `localStorage`** (chave `iceibank.token`). Vantagens: simples
+e sobrevive a recarregar a página (o app já inicia autenticado se houver token).
+Como enviamos o token no cabeçalho `Authorization` (e não em cookie), não há
+exposição automática a CSRF. O risco conhecido do `localStorage` é um XSS
+conseguir ler o token; mitigamos mantendo a expiração curta (30 min) e não
+injetando HTML de terceiros. `sessionStorage` seria a alternativa se quiséssemos
+que a sessão sumisse ao fechar a aba. A agência selecionada também é persistida
+(`iceibank.agencia`).
 
 ### Questões
 
 **1. Como o frontend "lembra" de reenviar o token em cada requisição depois do
 login? Descreva o mecanismo implementado.**
 
-_(responder)_
+No login bem-sucedido, o `access_token` devolvido por `/auth/login` é salvo no
+`localStorage` (`setToken()` em `src/api/cliente.js`). **Toda** requisição à API
+passa por uma única função, `requisitar()`, no mesmo arquivo - nenhum componente
+chama `fetch` diretamente. Antes de cada `fetch`, `requisitar()` lê o token do
+`localStorage` e adiciona o cabeçalho `Authorization: Bearer <token>`. Assim o
+reenvio é automático e centralizado num só ponto, e o token sobrevive a um
+reload da página.
 
 **2. Se o token expirar enquanto alguém está usando o frontend no meio de uma
 operação, o que acontece na sua implementação? A interface avisa a pessoa?**
 
-_(responder)_
+A `requisitar()` inspeciona o status da resposta. Ao receber **401**, ela: (1)
+apaga o token do `localStorage`; (2) lança um erro do tipo `SessaoExpirada` com
+a mensagem vinda da API ("Token expirado."). No `App.jsx`, o wrapper
+`executar()` reconhece esse tipo específico, volta o estado para
+não-autenticado (a tela de login reaparece) e mostra a mensagem no **banner
+vermelho** no topo. Ou seja, **a interface avisa explicitamente** - a pessoa vê
+"Token expirado." / "Sua sessão expirou. Entre novamente." e volta ao login, em
+vez de só um erro no console.
 
 **3. Esta unidade trata de arquitetura MVC. No seu frontend, onde fica o "M"
 (Model), o "V" (View) e o "C" (Controller)?**
 
-_(responder)_
+- **Model - `src/api/`.** `cliente.js` (infra HTTP: injeta o token, trata 401,
+  converte resposta != 2xx em `ErroApi`/`SessaoExpirada`, guarda token e agência
+  no `localStorage`), `auth.js` (login) e `contas.js` (`consultarSaldo`,
+  `depositar`, `sacar`, `transferir`, `criarConta`, `agenciaDaConta`). É onde
+  mora "o que o sistema faz" e o acesso ao estado persistido.
+- **View - `src/componentes/`.** `Login`, `ConsultaSaldo`, `FormValor` (reusado
+  em Depósito e Saque), `FormTransferencia`, `Mensagem`. Componentes de
+  apresentação: renderizam, capturam entrada, recebem tudo por props e avisam o
+  pai por callbacks; não sabem como a API funciona.
+- **Controller - `src/App.jsx`.** Guarda o estado da tela (autenticado, agência,
+  conta consultada, mensagem, "ocupado"), liga os eventos da View às funções do
+  Model (`aoEntrar`, `aoConsultar`, `aoDepositar`, `aoSacar`, `aoTransferir`) e
+  decide o que exibir (login ou painel). O wrapper `executar()` concentra o
+  fluxo comum: marca "ocupado", chama o Model e transforma sucesso/erro em
+  mensagem visível.
+
+A separação é razoavelmente clara. Onde ela "mistura" mais é o próprio
+`App.jsx`, que acumula o papel de Controller e de container da View - comum em
+apps React pequenos. Dava para extrair um hook `useSessao()` para isolar melhor
+a lógica de autenticação.
