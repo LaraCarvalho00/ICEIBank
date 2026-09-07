@@ -17,13 +17,29 @@ pelos autores.
 
 ## Funcionalidade adicional (seção 2.1)
 
-**Funcionalidade escolhida:** _(a definir - ver seção correspondente)_
+**Funcionalidade escolhida:** Histórico de transações por conta.
 
-**O que faz:**
+**O que faz:** novo endpoint `GET /contas/{id}/historico?limite=N` (protegido por
+JWT). Lê o log de eventos da agência (`data/eventos-agencia-<id>.jsonl`), filtra
+os eventos que envolvem aquela conta - olhando os campos `id`, `idConta`,
+`idOrigem` e `idDestino` dentro de `detalhes` -, ordena por timestamp de Lamport
+e devolve os `N` mais recentes (padrão 20, teto 500). A resposta traz
+`total` (quantos eventos a conta tem no total) e a lista `eventos`. Cobre
+criação, depósitos, saques e as duas pontas de transferência (débito, crédito,
+crédito remoto e falha). Conta inexistente na agência → 404; `limite` fora de
+1..500 → 422.
 
-**Por que escolhemos:**
+Código: `agencia/src/controllers/historico_controller.py` +
+rota em `agencia/src/rotas.py`.
+
+**Por que escolhemos:** é comportamento novo e observável (um endpoint que não
+existia, com regra própria e parâmetro de consulta), encaixa direto no que o
+sprint já produz (o log de eventos com Lamport) e é a base natural de um extrato
+bancário - algo que os próximos sprints vão reaproveitar. Também exercita a
+leitura do mesmo log que o `mesclar_logs.py` usa, reforçando a Parte E.
 
 **Evidência:** `evidencias/sprint1/funcionalidade-adicional.png`
+(gerar com `evidencias/sprint1/demos/08-historico.sh`).
 
 ---
 

@@ -98,6 +98,12 @@ erro), **View** em `src/componentes/` (formulários e banner de mensagem),
 **Controller** em `src/App.jsx` (estado + orquestração). Detalhes em
 `RESPOSTAS.md` - Parte G.
 
+## Funcionalidade adicional (seção 2.1)
+
+`GET /contas/{id}/historico?limite=N` - histórico de transações de uma conta,
+montado a partir do log de eventos da agência e ordenado por relógio de Lamport.
+Ver `RESPOSTAS.md` e `evidencias/sprint1/demos/08-historico.sh`.
+
 ## Documentação da entrega
 
 - `RESPOSTAS.md` - respostas às questões das seções 6.4, 8.3, 10.3, 11.3 e 12.3,

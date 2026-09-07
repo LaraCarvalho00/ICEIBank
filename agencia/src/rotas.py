@@ -11,7 +11,12 @@ controllers) e da autenticação (Parte F):
 """
 from fastapi import APIRouter, Depends
 
-from .controllers import auth_controller, contas_controller, transferencias_controller
+from .controllers import (
+    auth_controller,
+    contas_controller,
+    historico_controller,
+    transferencias_controller,
+)
 from .seguranca import requer_token, requer_token_interno
 
 router = APIRouter()
@@ -47,6 +52,14 @@ router.add_api_route(
     "/contas/{id_conta}/sacar",
     contas_controller.sacar,
     methods=["POST"],
+    dependencies=_usuario,
+    tags=["contas"],
+)
+# Funcionalidade adicional (seção 2.1): histórico de transações por conta.
+router.add_api_route(
+    "/contas/{id_conta}/historico",
+    historico_controller.historico,
+    methods=["GET"],
     dependencies=_usuario,
     tags=["contas"],
 )
