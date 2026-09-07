@@ -32,14 +32,45 @@ pelos autores.
 **1. Por que o relógio de Lamport usa `max(contador_local, timestampRecebido) + 1`
 ao receber uma mensagem, em vez de adotar o timestamp recebido diretamente?**
 
-_(responder)_
+Porque o relógio precisa satisfazer duas propriedades ao mesmo tempo, e adotar o
+timestamp recebido "cru" quebra pelo menos uma delas:
+
+- **Monotonicidade (nunca retroceder).** Se o timestamp recebido for *menor* que
+  o contador local (a outra agência estava atrasada), adotá-lo faria o relógio
+  andar para trás. Eventos futuros ganhariam timestamps menores que eventos
+  passados, e poderiam surgir timestamps repetidos. O `max` garante que o
+  contador fica **pelo menos igual** ao que já era.
+- **Causalidade estrita entre envio e recebimento.** O evento "receber" acontece
+  *depois* do evento "enviar" da outra agência. Se adotássemos o timestamp
+  recebido diretamente (caso ele fosse maior), "receber" ficaria com o **mesmo**
+  valor de "enviar", sugerindo simultaneidade. O `+ 1` força
+  `ts(enviar) < ts(receber)` e também `ts(último evento local) < ts(receber)`,
+  preservando a relação "aconteceu antes".
+
+Em resumo: `max(...)` impede retrocesso; `+ 1` garante que o recebimento é
+estritamente posterior tanto ao último evento local quanto ao envio remoto.
 
 **2. Se a Agência 0 está no evento de contador 10 e recebe uma mensagem com
 timestamp 3 (de uma agência mais "atrasada"), qual o novo valor do contador da
 Agência 0? O que isso implica sobre agências que processam muitos eventos
 rapidamente versus agências mais lentas?**
 
-_(responder)_
+`max(10, 3) + 1 = **11**`. A mensagem "atrasada" não puxa o relógio da Agência 0
+para trás; ela apenas continua avançando (10 → 11). Isso está verificado em
+`agencia/verificar_lamport.py` (`cenario_pergunta_6_4_2`).
+
+Implicações:
+
+- O relógio de cada agência avança no ritmo dos **próprios** eventos. Uma agência
+  que processa muita coisa terá contador alto; uma agência ociosa terá contador
+  baixo.
+- Quando a agência lenta manda mensagem para a rápida, quase nada muda (a rápida
+  já está à frente, faz só `+1`). Quando a rápida manda para a lenta, a lenta
+  **salta** para perto do valor da rápida.
+- Logo, o valor de Lamport **não** mede "quantidade de trabalho" nem "tempo", e a
+  diferença numérica entre dois timestamps não significa nada além de ordem. Só a
+  ordem relativa importa - e, mesmo assim, apenas para eventos causalmente
+  ligados.
 
 ---
 
