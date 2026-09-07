@@ -104,15 +104,38 @@ export async function requisitar(caminho, { metodo = 'GET', corpo, base } = {}) 
   }
 
   if (!resposta.ok) {
-    const detalhe = dados && dados.detail
-    const msg =
-      typeof detalhe === 'string'
-        ? detalhe
-        : detalhe
-          ? JSON.stringify(detalhe)
-          : `Erro ${resposta.status}`
-    throw new ErroApi(msg, resposta.status)
+    throw new ErroApi(
+      formatarDetalhe(dados && dados.detail, resposta.status),
+      resposta.status,
+    )
   }
 
   return dados
+}
+
+// Mensagens de validação do FastAPI/Pydantic mais comuns, em português.
+const TRAD_VALIDACAO = {
+  'Input should be a valid number': 'informe um número válido',
+  'Input should be a valid integer': 'informe um número inteiro',
+  'Input should be greater than 0': 'deve ser maior que zero',
+  'Input should be greater than or equal to 0': 'não pode ser negativo',
+  'Field required': 'campo obrigatório',
+  'String should have at least 1 character': 'campo obrigatório',
+}
+
+// Transforma o "detail" da resposta em uma frase legível. O 422 do Pydantic vem
+// como um array de objetos {loc, msg, ...}; sem isto o usuário veria o JSON cru.
+function formatarDetalhe(detalhe, status) {
+  if (typeof detalhe === 'string') return detalhe
+  if (Array.isArray(detalhe)) {
+    return detalhe
+      .map((e) => {
+        const campo = Array.isArray(e.loc) ? e.loc[e.loc.length - 1] : e.loc
+        const bruta = String(e.msg || '').replace(/^Value error,\s*/i, '')
+        const msg = TRAD_VALIDACAO[bruta] || bruta
+        return campo && campo !== 'body' ? `${campo}: ${msg}` : msg
+      })
+      .join(' · ')
+  }
+  return `Erro ${status}`
 }
