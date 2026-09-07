@@ -28,18 +28,13 @@ obter_token() {
 reiniciar_agencias() {
   titulo "Reiniciando as 3 agencias (estado limpo)"
   ( cd "$AGDIR" && ./dev-agencias.sh stop >/dev/null 2>&1 || true )
-  sleep 1
   rm -f "$AGDIR"/data/eventos-agencia-0.jsonl \
         "$AGDIR"/data/eventos-agencia-1.jsonl \
         "$AGDIR"/data/eventos-agencia-2.jsonl
-  ( cd "$AGDIR" && ./dev-agencias.sh start )
-  for _ in $(seq 1 40); do
-    if curl -sf "$AG0/" >/dev/null && curl -sf "$AG1/" >/dev/null && curl -sf "$AG2/" >/dev/null; then
-      sleep 0.3; obter_token; return 0
-    fi
-    sleep 0.5
-  done
-  echo "ERRO: agencias nao subiram"; exit 1
+  if ! ( cd "$AGDIR" && ./dev-agencias.sh start ); then
+    echo "ERRO: agencias nao subiram"; exit 1
+  fi
+  obter_token
 }
 
 # req METODO URL [JSON]  -> envia o token JWT (se houver) no Authorization
