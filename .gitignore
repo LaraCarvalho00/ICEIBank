@@ -14,6 +14,9 @@ venv/
 agencia/data/*
 !agencia/data/README.md
 
+# Saídas de texto geradas pelos scripts de demo (o que entra na entrega é o .png)
+evidencias/sprint1/saidas/
+
 # Node / frontend
 node_modules/
 frontend/dist/
