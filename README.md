@@ -138,5 +138,5 @@ logo em seguida. MVC do frontend: ver `RESPOSTAS.md` - Sprint 1, Parte G.
 
 - `RESPOSTAS.md`: respostas do Sprint 2 (seções 6.4, 7.5 e 8.3 + funcionalidade
   adicional) e, abaixo, as do Sprint 1.
-- `evidencias/sprint2/`: prints do Sprint 2.
+- `evidencias/sprint2/`: prints do Sprint 2 (o que cada um mostra em `evidencias/sprint2/README.md`).
 - `evidencias/sprint1/`: prints do Sprint 1.
