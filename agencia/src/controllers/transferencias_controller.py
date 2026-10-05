@@ -15,7 +15,9 @@ broker". O crédito acontece depois, de forma assíncrona.
 LIMITAÇÃO CONHECIDA: se a mensagem chegar e a conta de destino não existir (ex.:
 a agência reiniciou e perdeu as contas em memória), o crédito não é aplicado e o
 débito na origem também não é desfeito. Compensar isso é assunto do Sprint 4
-(Saga). Por enquanto o caso fica registrado como ``CREDITO_REMOTO_FALHOU``.
+(Saga). Por enquanto o caso fica registrado como ``CREDITO_REMOTO_FALHOU`` e a
+mensagem vai para a dead-letter queue da agência (funcionalidade adicional),
+de onde pode ser reprocessada depois que a conta existir.
 """
 import uuid
 
@@ -134,7 +136,7 @@ def processar_credito_remoto(conteudo: dict) -> None:
             relogio.evento_local(),
             {"conteudo": conteudo, "camposInvalidos": [".".join(map(str, e["loc"])) for e in erro.errors()]},
         )
-        return
+        raise mensageria.MensagemRecusada("mensagem invalida")
 
     # Regra 3: máximo posição a posição com o vetor recebido + incrementa a
     # própria posição. Vale mesmo que o crédito falhe: a mensagem foi recebida.
@@ -153,7 +155,7 @@ def processar_credito_remoto(conteudo: dict) -> None:
                 "motivo": "conta nao encontrada",
             },
         )
-        return
+        raise mensageria.MensagemRecusada(f"conta {msg.idConta} nao encontrada")
 
     conta["saldo"] += msg.valor
     registro.registrar(

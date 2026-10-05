@@ -9,6 +9,10 @@ venv/
 # uv
 .uv/
 
+# Segredos locais (URL do RabbitMQ/CloudAMQP com usuario e senha)
+.env
+.env.local
+
 # Conteúdo de runtime das agências (logs .jsonl, saída dos processos .out).
 # A pasta é versionada só pelo README.
 agencia/data/*

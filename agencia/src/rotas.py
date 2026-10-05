@@ -17,6 +17,7 @@ from .controllers import (
     auth_controller,
     contas_controller,
     historico_controller,
+    mensagens_mortas_controller,
     transferencias_controller,
 )
 from .seguranca import requer_token
@@ -73,4 +74,20 @@ router.add_api_route(
     methods=["POST"],
     dependencies=_usuario,
     tags=["transferencias"],
+)
+
+# ---- Funcionalidade adicional (Sprint 2): dead-letter queue ----
+router.add_api_route(
+    "/mensagens-mortas",
+    mensagens_mortas_controller.listar,
+    methods=["GET"],
+    dependencies=_usuario,
+    tags=["mensageria"],
+)
+router.add_api_route(
+    "/mensagens-mortas/reprocessar",
+    mensagens_mortas_controller.reprocessar,
+    methods=["POST"],
+    dependencies=_usuario,
+    tags=["mensageria"],
 )
