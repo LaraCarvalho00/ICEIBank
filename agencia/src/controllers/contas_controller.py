@@ -1,7 +1,7 @@
 """Controller de contas (MVC: Controller).
 
 Regra de negócio de criar conta, consultar saldo, depositar e sacar. Toda
-operação que altera estado é carimbada com um timestamp do relógio de Lamport
+operação que altera estado é carimbada com o relógio vetorial
 (``relogio.evento_local()``) e registrada no log de eventos.
 """
 from fastapi import HTTPException

@@ -5,14 +5,16 @@ Cada agência é o MESMO código, identificada pela variável de ambiente
 então ``relogio``, ``registro`` e ``contas`` são efetivamente singletons da
 agência.
 
-Não há banco de dados neste sprint (proposital: o foco é REST/MVC + relógio de
-Lamport). Reiniciar o processo zera as contas - é esperado.
+Ainda não há banco de dados (proposital): reiniciar o processo zera as contas.
+No Sprint 2 isso tem uma consequência visível - um crédito que fica retido na
+fila do RabbitMQ enquanto a agência está fora do ar chega, na volta, a uma
+agência que já não tem a conta (ver RESPOSTAS.md, Parte C).
 """
 import os
 
 from . import config
 from .services.registro_eventos import RegistroEventos
-from .services.relogio_lamport import RelogioLamport
+from .services.relogio_vetorial import RelogioVetorial
 
 ID_AGENCIA = int(os.environ.get("AGENCIA_ID", "0"))
 
@@ -22,7 +24,7 @@ if not any(a["id"] == ID_AGENCIA for a in config.AGENCIAS):
         f"(validas: {[a['id'] for a in config.AGENCIAS]})"
     )
 
-relogio = RelogioLamport()
+relogio = RelogioVetorial(ID_AGENCIA, config.NUMERO_AGENCIAS)
 registro = RegistroEventos(f"agencia-{ID_AGENCIA}")
 
 # id_conta -> {"id": int, "nomeAluno": str, "saldo": float}

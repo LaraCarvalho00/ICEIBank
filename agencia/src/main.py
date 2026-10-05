@@ -16,7 +16,7 @@ from .rotas import router
 
 app = FastAPI(
     title=f"ICEIBank - Agencia {estado.ID_AGENCIA}",
-    description="Sprint 1 - API REST/MVC com relogio de Lamport",
+    description="Sprint 2 - API REST/MVC com relogio vetorial e mensageria (RabbitMQ)",
     version="1.0.0",
 )
 

@@ -3,7 +3,7 @@
     GET /contas/{id}/historico?limite=N   (padrão N = 20)
 
 Lê o log de eventos da agência (``data/eventos-agencia-<id>.jsonl``) e devolve,
-em ordem cronológica de Lamport, os eventos que envolvem a conta informada:
+na ordem em que foram registrados, os eventos que envolvem a conta informada:
 criação, depósitos, saques e as pontas de transferência (débito, crédito,
 crédito remoto e falha). Serve para auditoria e para conferir o extrato de uma
 conta sem precisar abrir o arquivo de log à mão.
@@ -45,7 +45,9 @@ def historico(id_conta: int, limite: int = 20) -> dict:
     except FileNotFoundError:
         eventos = []
 
-    eventos.sort(key=lambda e: e["timestampLamport"])
+    # O arquivo é só desta agência e é escrito em ordem (append sob lock), e a
+    # posição própria do vetor cresce a cada evento - a ordem das linhas já é a
+    # ordem causal local. Não é preciso reordenar.
     return {
         "agencia": ID_AGENCIA,
         "conta": id_conta,

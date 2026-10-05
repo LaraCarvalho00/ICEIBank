@@ -4,8 +4,10 @@ evento). Esses arquivos são a matéria-prima da linha do tempo unificada
 
 Cada evento guarda dois carimbos de tempo:
 
-- ``timestampLamport``: o relógio lógico - usado para ordenar a linha do tempo;
-- ``horaParede``: o relógio físico da máquina, apenas para comparação. NÃO é
+- ``timestampVetorial``: o relógio vetorial (Sprint 2; no Sprint 1 era um único
+  número de Lamport) - permite decidir se dois eventos são causalmente
+  relacionados ou concorrentes;
+- ``horaParede``: o relógio físico da máquina, apenas para exibição. NÃO é
   usado para nenhuma decisão do sistema.
 """
 import json
@@ -26,16 +28,16 @@ class RegistroEventos:
         )
         self._lock = threading.Lock()
 
-    def registrar(self, tipo: str, timestamp_lamport: int, detalhes: dict) -> dict:
+    def registrar(self, tipo: str, timestamp_vetorial: list[int], detalhes: dict) -> dict:
         evento = {
             "agencia": self.nome_agencia,
             "tipo": tipo,
-            "timestampLamport": timestamp_lamport,
+            "timestampVetorial": timestamp_vetorial,
             "horaParede": datetime.now(timezone.utc).isoformat(),
             "detalhes": detalhes,
         }
         with self._lock:
             with open(self.caminho_arquivo, "a", encoding="utf-8") as arquivo:
                 arquivo.write(json.dumps(evento, ensure_ascii=False) + "\n")
-        print(f"[Lamport {timestamp_lamport}] {tipo} {detalhes}")
+        print(f"[Vetor {timestamp_vetorial}] {tipo} {detalhes}", flush=True)
         return evento

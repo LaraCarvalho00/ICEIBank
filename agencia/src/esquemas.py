@@ -31,7 +31,7 @@ class TransferenciaIn(BaseModel):
 
 class CreditarRemotoIn(BaseModel):
     valor: float = Field(gt=0)
-    timestampLamport: int
+    timestampVetorial: list[int]
     origemAgencia: int
 
 

@@ -1,9 +1,9 @@
 """Controller de transferências (MVC: Controller).
 
 - Transferência LOCAL (origem e destino na mesma agência): débito e crédito são
-  dois eventos locais - relógio de Lamport com ``evento_local()``.
+  dois eventos locais - relógio vetorial com ``evento_local()``.
 - Transferência ENTRE AGÊNCIAS: o débito é local; o crédito vira uma mensagem
-  REST para a agência de destino. Aí entram as regras 2 e 3 de Lamport
+  REST para a agência de destino. Aí entram as regras 2 e 3 do relógio
   (``ao_enviar()`` no remetente, ``ao_receber()`` no destinatário).
 
 LIMITAÇÃO CONHECIDA: se a chamada à agência de destino falhar (agência fora do
@@ -75,7 +75,7 @@ def transferir(dados: TransferenciaIn) -> dict:
             f"{url_destino}/contas/{dados.idDestino}/creditar-remoto",
             json={
                 "valor": dados.valor,
-                "timestampLamport": ts_envio,
+                "timestampVetorial": ts_envio,
                 "origemAgencia": ID_AGENCIA,
             },
             headers=cabecalhos,
@@ -109,9 +109,9 @@ def transferir(dados: TransferenciaIn) -> dict:
 
 
 def creditar_remoto(id_conta: int, dados: CreditarRemotoIn) -> dict:
-    # Regra 3 de Lamport: ao RECEBER mensagem de outra agência, ajusta o relógio
-    # para max(contador_local, timestamp_recebido) + 1.
-    ts = relogio.ao_receber(dados.timestampLamport)
+    # Regra 3: ao RECEBER mensagem de outra agência, máximo posição a posição
+    # com o vetor recebido e depois incrementa a própria posição.
+    ts = relogio.ao_receber(dados.timestampVetorial)
 
     conta = contas.get(id_conta)
     if conta is None:
