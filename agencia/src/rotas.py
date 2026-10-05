@@ -5,9 +5,11 @@ controllers) e da autenticação (Parte F):
 
 - ``/auth/login`` é aberta;
 - as rotas de conta e ``/transferencias`` exigem um JWT de usuário
-  (``Authorization: Bearer <token>``);
-- ``/contas/{id}/creditar-remoto`` é interna: exige um token de escopo
-  ``"interno"``, emitido por outra agência.
+  (``Authorization: Bearer <token>``).
+
+A rota interna ``/contas/{id}/creditar-remoto`` do Sprint 1 deixou de existir:
+no Sprint 2 o crédito vindo de outra agência chega pelo RabbitMQ (ver
+``main.py`` e ``services/mensageria.py``).
 """
 from fastapi import APIRouter, Depends
 
@@ -17,7 +19,7 @@ from .controllers import (
     historico_controller,
     transferencias_controller,
 )
-from .seguranca import requer_token, requer_token_interno
+from .seguranca import requer_token
 
 router = APIRouter()
 
@@ -70,12 +72,5 @@ router.add_api_route(
     transferencias_controller.transferir,
     methods=["POST"],
     dependencies=_usuario,
-    tags=["transferencias"],
-)
-router.add_api_route(
-    "/contas/{id_conta}/creditar-remoto",
-    transferencias_controller.creditar_remoto,
-    methods=["POST"],
-    dependencies=[Depends(requer_token_interno)],
     tags=["transferencias"],
 )

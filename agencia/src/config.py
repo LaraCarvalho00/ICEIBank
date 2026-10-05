@@ -30,7 +30,7 @@ def agencia_responsavel(id_conta: int) -> int:
 
 
 def url_agencia(id_agencia: int) -> str:
-    """URL base de uma agência (usada nas chamadas REST entre agências)."""
+    """URL base HTTP de uma agência (o frontend e os scripts de demo a usam)."""
     for agencia in AGENCIAS:
         if agencia["id"] == id_agencia:
             return agencia["url"]

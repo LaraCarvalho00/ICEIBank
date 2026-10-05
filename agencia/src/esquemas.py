@@ -29,10 +29,18 @@ class TransferenciaIn(BaseModel):
         return self
 
 
-class CreditarRemotoIn(BaseModel):
+class MensagemCredito(BaseModel):
+    """Corpo da mensagem ``agencia.<id>.creditar`` publicada no RabbitMQ.
+
+    Não chega por HTTP, mas é validada do mesmo jeito: o consumidor não deve
+    confiar cegamente no que está na fila.
+    """
+    idMensagem: str
+    idOrigem: int = Field(ge=0)
+    idConta: int = Field(ge=0)
     valor: float = Field(gt=0)
-    timestampVetorial: list[int]
-    origemAgencia: int
+    vetorEnvio: list[int]
+    origemAgencia: int = Field(ge=0)
 
 
 class LoginIn(BaseModel):

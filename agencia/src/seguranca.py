@@ -8,9 +8,10 @@ Decisões de design (detalhadas e justificadas em RESPOSTAS.md):
   comparação em tempo constante.
 - **Token:** HS256, expira em ``JWT_EXPIRACAO_MIN`` minutos (padrão 30). Claims:
   ``sub`` (usuário), ``escopo``, ``iat``, ``exp``.
-- **Chamada interna entre agências** (``creditar-remoto``): usa um token de
-  escopo ``"interno"``, emitido pela agência de origem com o mesmo segredo e
-  validade curta. Não reaproveita o token do usuário final.
+- **Comunicação entre agências:** no Sprint 1 era uma chamada REST com token de
+  escopo ``"interno"``. No Sprint 2 virou mensagem no RabbitMQ, que não passa
+  pelo FastAPI - a confiança ali vem das credenciais do broker (ver
+  RESPOSTAS.md, Parte C, pergunta 3).
 """
 import hashlib
 import hmac
@@ -25,7 +26,6 @@ _SEGREDO_PADRAO = "iceibank-dev-segredo-inseguro-troque-em-producao"
 JWT_SEGREDO = os.environ.get("JWT_SEGREDO", _SEGREDO_PADRAO)
 JWT_ALGORITMO = "HS256"
 JWT_EXPIRACAO_MIN = int(os.environ.get("JWT_EXPIRACAO_MIN", "30"))
-TOKEN_INTERNO_EXPIRACAO_SEG = 30
 
 if JWT_SEGREDO == _SEGREDO_PADRAO:
     print(
@@ -72,13 +72,6 @@ def criar_token(sub: str, escopo: str = "usuario", expira_em: timedelta | None =
     return jwt.encode(payload, JWT_SEGREDO, algorithm=JWT_ALGORITMO)
 
 
-def criar_token_interno(sub: str) -> str:
-    """Token curto para a chamada agência-a-agência (escopo 'interno')."""
-    return criar_token(
-        sub, escopo="interno", expira_em=timedelta(seconds=TOKEN_INTERNO_EXPIRACAO_SEG)
-    )
-
-
 def _decodificar(authorization: str | None) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "Token ausente. Use 'Authorization: Bearer <token>'.")
@@ -94,13 +87,3 @@ def _decodificar(authorization: str | None) -> dict:
 def requer_token(authorization: str | None = Header(default=None)) -> dict:
     """Dependency: exige um JWT válido e não expirado (autenticação)."""
     return _decodificar(authorization)
-
-
-def requer_token_interno(authorization: str | None = Header(default=None)) -> dict:
-    """Dependency da chamada agência-a-agência: exige token de escopo 'interno'."""
-    payload = _decodificar(authorization)
-    if payload.get("escopo") != "interno":
-        raise HTTPException(
-            403, "Endpoint interno: requer token de servico (escopo 'interno')."
-        )
-    return payload

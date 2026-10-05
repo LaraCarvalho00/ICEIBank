@@ -1,13 +1,13 @@
 [project]
 name = "iceibank-agencia"
-version = "1.0.0"
-description = "Agencia do ICEIBank - Sprint 1 (REST/MVC + Relogio de Lamport)"
+version = "2.0.0"
+description = "Agencia do ICEIBank - Sprint 2 (Mensageria Pub/Sub + Relogio vetorial)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
-    "httpx>=0.27",
     "pyjwt>=2.10",
+    "pika>=1.3",
 ]
 
 [tool.uv]
