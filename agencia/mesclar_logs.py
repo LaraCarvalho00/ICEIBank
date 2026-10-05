@@ -1,23 +1,36 @@
-"""Linha do tempo unificada das 3 agências, ordenada pelo relógio de Lamport.
+"""Linha do tempo causal das 3 agências (Parte D - relógio vetorial).
 
-Lê todos os ``data/eventos-*.jsonl`` e imprime um único fluxo de eventos
-ordenado por ``timestampLamport``. Rodar depois de gerar alguns eventos:
+Lê todos os ``data/eventos-*.jsonl`` e:
 
-    uv run python mesclar_logs.py
+1. imprime um único fluxo de eventos ordenado por hora de parede (só para
+   leitura - a hora de parede NÃO decide causalidade);
+2. lista os pares de eventos de agências DIFERENTES que são comprovadamente
+   CONCORRENTES (nenhum vetor é <= o outro);
+3. confere as transferências entre agências: cada ``TRANSFERENCIA_PUBLICADA``
+   é casada (pelo ``idMensagem``) com o crédito na agência de destino, e o par
+   tem de dar ``ANTES`` - relação causal, nunca concorrente.
 
-Eventos com o MESMO ``timestampLamport`` vindos de agências diferentes são
-concorrentes: o relógio de Lamport, sozinho, não define ordem entre eles (é o
-que motiva o relógio vetorial do Sprint 2).
+Rodar depois de gerar alguns eventos:
+
+    uv run python mesclar_logs.py              # mostra até 50 pares concorrentes
+    uv run python mesclar_logs.py --limite 0   # mostra todos
 """
+import argparse
 import json
 import os
 import sys
+from itertools import combinations
+
+from src.services.relogio_vetorial import comparar
 
 PASTA_DADOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+TIPOS_CREDITO_REMOTO = {"TRANSFERENCIA_CREDITO_REMOTO", "CREDITO_REMOTO_FALHOU"}
 
 
 def carregar_eventos() -> list[dict]:
     eventos: list[dict] = []
+    ignorados = 0
     if not os.path.isdir(PASTA_DADOS):
         return eventos
     for nome in sorted(os.listdir(PASTA_DADOS)):
@@ -26,50 +39,71 @@ def carregar_eventos() -> list[dict]:
         with open(os.path.join(PASTA_DADOS, nome), encoding="utf-8") as arquivo:
             for linha in arquivo:
                 linha = linha.strip()
-                if linha:
-                    eventos.append(json.loads(linha))
+                if not linha:
+                    continue
+                evento = json.loads(linha)
+                if "timestampVetorial" not in evento:  # log antigo (Lamport)
+                    ignorados += 1
+                    continue
+                eventos.append(evento)
+    if ignorados:
+        print(f"(aviso: {ignorados} evento(s) sem timestampVetorial ignorados - logs do Sprint 1?)\n")
     return eventos
 
 
+def rotulo(e: dict) -> str:
+    return f"[{e['agencia']}] {e['tipo']} {e['timestampVetorial']}"
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--limite", type=int, default=50, help="máx. de pares concorrentes exibidos (0 = todos)")
+    args = parser.parse_args()
+
     eventos = carregar_eventos()
     if not eventos:
         print(f"Nenhum evento encontrado em {PASTA_DADOS}")
         print("Rode algumas operacoes nas agencias primeiro.")
         sys.exit(0)
 
-    # Ordena por timestamp de Lamport. O desempate por nome de agência é
-    # arbitrario de proposito: eventos com o mesmo timestamp sao concorrentes e
-    # nenhuma ordem entre eles e "mais correta" que a outra.
-    eventos.sort(key=lambda e: (e["timestampLamport"], e["agencia"]))
+    eventos.sort(key=lambda e: e["horaParede"])
 
-    # Marca os timestamps que aparecem em mais de um evento (candidatos a
-    # eventos concorrentes).
-    contagem: dict[int, int] = {}
+    print("=== Linha do tempo (ordenada por hora de parede) ===")
     for e in eventos:
-        contagem[e["timestampLamport"]] = contagem.get(e["timestampLamport"], 0) + 1
-
-    print("=== Linha do tempo unificada (ordenada por relogio de Lamport) ===")
-    for e in eventos:
-        ts = e["timestampLamport"]
-        marca = "  <== timestamp repetido" if contagem[ts] > 1 else ""
         detalhes = json.dumps(e["detalhes"], ensure_ascii=False)
-        print(
-            f"[Lamport {ts:>3}] ({e['horaParede']}) "
-            f"{e['agencia']:<10} {e['tipo']:<28} {detalhes}{marca}"
-        )
+        print(f"{e['horaParede'][11:23]}  {e['agencia']:<10} vetor={str(e['timestampVetorial']):<10} {e['tipo']:<30} {detalhes}")
 
-    repetidos = sorted(ts for ts, n in contagem.items() if n > 1)
-    if repetidos:
-        print(
-            f"\nTimestamps de Lamport repetidos (eventos possivelmente "
-            f"concorrentes): {repetidos}"
-        )
-    else:
-        print(
-            "\nNenhum timestamp repetido nesta execucao. Gere mais eventos "
-            "concorrentes (operacoes independentes em agencias diferentes)."
-        )
+    # ---- Pares concorrentes entre agências diferentes ----
+    concorrentes = [
+        (e1, e2)
+        for e1, e2 in combinations(eventos, 2)
+        if e1["agencia"] != e2["agencia"]
+        and comparar(e1["timestampVetorial"], e2["timestampVetorial"]) == "CONCORRENTES"
+    ]
+    print(f"\n=== Pares de eventos CONCORRENTES entre agencias diferentes ({len(concorrentes)}) ===")
+    if not concorrentes:
+        print("(nenhum par concorrente encontrado - gere eventos independentes em agencias diferentes e rode de novo)")
+    exibir = concorrentes if args.limite <= 0 else concorrentes[: args.limite]
+    for e1, e2 in exibir:
+        print(f"{rotulo(e1)}  ||  {rotulo(e2)}")
+    if len(exibir) < len(concorrentes):
+        print(f"... e mais {len(concorrentes) - len(exibir)} (use --limite 0 para ver todos)")
+
+    # ---- Transferências entre agências: o par envio/recebimento é causal ----
+    publicadas = {e["detalhes"].get("idMensagem"): e for e in eventos if e["tipo"] == "TRANSFERENCIA_PUBLICADA"}
+    creditos = [e for e in eventos if e["tipo"] in TIPOS_CREDITO_REMOTO]
+    print(f"\n=== Transferencias entre agencias: publicacao -> credito remoto ({len(publicadas)}) ===")
+    if not publicadas:
+        print("(nenhuma transferencia entre agencias nos logs)")
+    for id_msg, envio in publicadas.items():
+        recebimentos = [c for c in creditos if c["detalhes"].get("idMensagem") == id_msg]
+        if not recebimentos:
+            print(f"{rotulo(envio)}  ->  (ainda nao consumida / sem registro no destino)")
+            continue
+        for receb in recebimentos:
+            relacao = comparar(envio["timestampVetorial"], receb["timestampVetorial"])
+            ok = "OK, causal" if relacao == "ANTES" else "INESPERADO"
+            print(f"{rotulo(envio)}  ->  {rotulo(receb)}   relacao={relacao} ({ok})")
 
 
 if __name__ == "__main__":
