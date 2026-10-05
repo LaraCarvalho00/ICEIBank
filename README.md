@@ -52,7 +52,6 @@ agencia/
 ├── data/                             # logs gerados em runtime (não versionado)
 ├── mesclar_logs.py                   # linha do tempo causal + pares concorrentes
 ├── verificar_vetorial.py             # teste isolado do relógio vetorial
-├── dev-agencias.ps1                  # sobe/derruba as 3 agências (Windows)
 └── .env.local                        # RABBITMQ_URL (NÃO versionado)
 ```
 
@@ -72,19 +71,11 @@ RabbitMQ. Usamos o plano gratuito *Little Lemur* do
    Alternativa do roteiro: definir `$env:RABBITMQ_URL="amqps://..."` em cada
    terminal. A variável de ambiente tem prioridade sobre o arquivo.
 
-2. Suba as agências (Windows / PowerShell):
+2. Instale as dependências e suba as agências, um terminal PowerShell por
+   agência, todos em `agencia/`:
 
    ```powershell
-   cd agencia
-   uv sync                        # cria .venv e instala dependências
-   .\dev-agencias.ps1 start       # abre uma janela por agência (portas 4000-4002)
-   .\dev-agencias.ps1 stop 1      # derruba só a agência 1 (teste de resiliência)
-   .\dev-agencias.ps1 status
-   ```
-
-   Ou manualmente, um terminal por agência:
-
-   ```powershell
+   uv sync                        # uma vez: cria .venv e instala dependências
    $env:AGENCIA_ID=0; uv run uvicorn src.main:app --port 4000
    $env:AGENCIA_ID=1; uv run uvicorn src.main:app --port 4001
    $env:AGENCIA_ID=2; uv run uvicorn src.main:app --port 4002
@@ -147,6 +138,5 @@ logo em seguida. MVC do frontend: ver `RESPOSTAS.md` - Sprint 1, Parte G.
 
 - `RESPOSTAS.md`: respostas do Sprint 2 (seções 6.4, 7.5 e 8.3 + funcionalidade
   adicional) e, abaixo, as do Sprint 1.
-- `evidencias/sprint2/`: prints do Sprint 2 (passo a passo em
-  `evidencias/sprint2/README.md`).
+- `evidencias/sprint2/`: prints do Sprint 2.
 - `evidencias/sprint1/`: prints do Sprint 1.
