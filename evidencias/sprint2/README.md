@@ -4,17 +4,42 @@ Prints **reais**, com `Get-Date` visível em algum terminal (as janelas abertas
 pelo `dev-agencias.ps1` já mostram a data no topo). No Windows: `Win+Shift+S`
 para recortar uma área da tela.
 
-| Arquivo | Cena |
-|---|---|
-| `transferencia-assincrona.png` | transferência 0 → 1 via mensageria, com as janelas da Agência 0 **e** da Agência 1 visíveis (`TRANSFERENCIA_PUBLICADA` numa, `TRANSFERENCIA_CREDITO_REMOTO` na outra) |
-| `resiliencia-fila.png` | Agência 1 fora do ar → transferência responde 200 → mensagem retida em `fila-agencia-1` (RabbitMQ Manager) → Agência 1 volta → `CREDITO_REMOTO_FALHOU` (conta não encontrada) |
-| `linha-do-tempo-causal.png` | saída do `mesclar_logs.py` com pares concorrentes e a seção "publicacao -> credito remoto ... ANTES" |
-| `funcionalidade-adicional.png` | `GET /mensagens-mortas` mostrando a mensagem na DLQ → recriar a conta → `POST /mensagens-mortas/reprocessar` → saldo creditado |
-| `frontend-regressao.png` | uma operação feita pelo frontend (ex.: transferência entre agências) mostrando que login/JWT e frontend seguem funcionando |
+Prints capturados em 05/10/2026, numa única execução contínua (instância
+CloudAMQP, RabbitMQ 4.3.5), gerados pelos scripts de `demos/`:
+
+| Arquivo | Script | Cena |
+|---|---|---|
+| `transferencia-assincrona.png` | `demos/01-transferencia-assincrona.ps1` | transferência 0 → 1 via mensageria: `TRANSFERENCIA_PUBLICADA [3,0,0]` na Ag0 e `TRANSFERENCIA_CREDITO_REMOTO [3,2,0]` na Ag1 |
+| `resiliencia-fila.png` (montagem das 3 partes abaixo) | `demos/02-resiliencia-fila.ps1` | Ag1 fora do ar → HTTP 200 → mensagem retida → Ag1 volta → `CREDITO_REMOTO_FALHOU` (conta não encontrada) |
+| ├ `resiliencia-fila-1-agencia-fora.png` | | Ag1 parada, transferência 200, `fila-agencia-1 mensagens=1 consumidores=0` |
+| ├ `resiliencia-fila-2-rabbitmq-manager.png` | | RabbitMQ Manager: `fila-agencia-1` com Ready = 1 (filas com selo DLX) |
+| └ `resiliencia-fila-3-agencia-volta.png` | | Ag1 religada: mensagem entregue, `CREDITO_REMOTO_FALHOU [5,1,0]`, mensagem na `fila-agencia-1.dlq` |
+| `funcionalidade-adicional.png` | `demos/03-dead-letter-queue.ps1` | `GET /mensagens-mortas` (motivo `rejected`) → conta recriada → `reprocessadas: 1` → saldo 20, DLQ vazia |
+| `linha-do-tempo-causal.png` | `demos/04-linha-do-tempo-causal.ps1` | `mesclar_logs.py`: 18 pares concorrentes (ex.: `CRIAR_CONTA [0,1,0] ‖ CRIAR_CONTA [0,0,1]`) e publicação → crédito = `ANTES` |
+| `frontend-regressao.png` | navegador | login JWT + transferência Ag0 → Ag1 pelo frontend ("publicada... entrega assincrona"); crédito aplicado na Ag1 (saldo 30, vetor `[7,5,0]`) |
+
+## Como reproduzir com os scripts
+
+Com `agencia/.env.local` configurado, a partir de `agencia/`:
+
+```powershell
+.\dev-agencias.ps1 stop
+Remove-Item data\eventos-agencia-*.jsonl -ErrorAction SilentlyContinue
+.\dev-agencias.ps1 start                                   # 3 janelas, uma por agência
+..\evidencias\sprint2\demos\01-transferencia-assincrona.ps1
+..\evidencias\sprint2\demos\02-resiliencia-fila.ps1        # pausa para o print antes de religar a Ag1
+..\evidencias\sprint2\demos\03-dead-letter-queue.ps1
+..\evidencias\sprint2\demos\04-linha-do-tempo-causal.ps1
+```
+
+`uv run python ver_filas.py` mostra a quantidade de mensagens em cada fila (a
+mesma coluna *Ready* do RabbitMQ Manager).
+
+## Passo a passo manual (sem os scripts)
 
 Dá para fazer tudo numa sequência só, nesta ordem.
 
-## 0. Preparação (uma vez)
+### 0. Preparação (uma vez)
 
 - `agencia/.env.local` com `RABBITMQ_URL=amqps://...` (já criado).
 - Abra um terminal PowerShell em `agencia/` (o "terminal de comandos") e
@@ -43,7 +68,7 @@ function req($metodo, $caminho, $corpo) {
 }
 ```
 
-## 1. `transferencia-assincrona.png`
+### 1. `transferencia-assincrona.png`
 
 Criação das contas (em agências diferentes, sem relação entre si; isso também
 alimenta os pares concorrentes da Parte D):
@@ -61,7 +86,7 @@ req GET 4001/contas/1          # saldo 30: o crédito chegou pela fila
 TRANSFERENCIA_PUBLICADA`) + janela da Agência 1 (`[Vetor [3, 2, 0]]
 TRANSFERENCIA_CREDITO_REMOTO`).
 
-## 2. `resiliencia-fila.png`
+### 2. `resiliencia-fila.png`
 
 ```powershell
 Get-Date
@@ -88,7 +113,7 @@ fila-agencia-1`:
 **Print** (pode ser uma montagem de 2 recortes): o 200 com a Agência 1 parada +
 a fila com 1 mensagem no Manager + o log da Agência 1 ao voltar.
 
-## 3. `funcionalidade-adicional.png` (dead-letter queue)
+### 3. `funcionalidade-adicional.png` (dead-letter queue)
 
 ```powershell
 Get-Date
@@ -101,7 +126,7 @@ req GET 4001/contas/1                                              # saldo 20
 No Manager, `fila-agencia-1.dlq` aparece com 1 mensagem antes do reprocessamento
 e 0 depois.
 
-## 4. `linha-do-tempo-causal.png`
+### 4. `linha-do-tempo-causal.png`
 
 ```powershell
 Get-Date
@@ -115,7 +140,7 @@ Precisa aparecer: a seção **"Pares de eventos CONCORRENTES"** com, por exemplo
 **"publicacao -> credito remoto"** com `relacao=ANTES (OK, causal)`. O débito
 `[2, 0, 0]` e o crédito `[3, 2, 0]` **não** estão entre os concorrentes.
 
-## 5. `frontend-regressao.png`
+### 5. `frontend-regressao.png`
 
 Com as 3 agências no ar:
 

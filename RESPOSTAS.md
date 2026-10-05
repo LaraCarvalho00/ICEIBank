@@ -285,7 +285,7 @@ independente. A Agência 1 e a Agência 2 nunca trocaram mensagem nenhuma (todas
 as transferências do teste foram da Agência 0 para a 1). O vetor da Agência 1
 tem 0 na posição 2, e o da Agência 2 tem 0 na posição 1: nenhum sabe da
 existência do outro evento. Não há como a criação da conta 1 ter causado a da
-conta 2, nem o contrário. A ordem de hora de parede entre eles (`.962` × `.982`)
+conta 2, nem o contrário. A ordem de hora de parede entre eles (`18:28:06.327` × `18:28:06.352`)
 é só um acaso de agendamento.
 
 Outro par que também aparece e mostra a diferença para a hora de parede:
