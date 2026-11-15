@@ -12,8 +12,6 @@ Antes, em cada terminal, definir a URL do RabbitMQ (CloudAMQP):
 
 Docs interativas: http://localhost:400X/docs
 """
-import threading
-import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -22,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import estado
 from .controllers import transferencias_controller
 from .rotas import router
-from .services import bully, mensageria
+from .services import heartbeat, mensageria
 
 
 @asynccontextmanager
@@ -31,13 +29,9 @@ async def ciclo_de_vida(_app: FastAPI):
     # Roda em uma thread própria, em paralelo ao servidor HTTP.
     mensageria.assinar(estado.ID_AGENCIA, transferencias_controller.processar_credito_remoto)
 
-    # Sprint 3: ao subir, a agência convoca uma eleição. Espera 1 s para o
-    # uvicorn já estar aceitando conexões (as outras vão responder a ela).
-    def eleicao_inicial() -> None:
-        time.sleep(1.0)
-        bully.iniciar_eleicao("agencia iniciou")
-
-    threading.Thread(target=eleicao_inicial, name="eleicao-inicial", daemon=True).start()
+    # Sprint 3: eleição inicial + heartbeat da líder (thread própria). Se a
+    # líder parar de responder, uma nova eleição é convocada sozinha.
+    heartbeat.iniciar()
     yield
 
 
