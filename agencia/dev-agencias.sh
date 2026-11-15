@@ -17,7 +17,9 @@ porta_livre() { ! lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
 
 mata_porta() {
   local pids
-  pids=$(lsof -tnP -iTCP:"$1" 2>/dev/null || true)
+  # Só quem ESCUTA na porta: sem -sTCP:LISTEN o lsof também lista quem tem uma
+  # conexão aberta com ela (ex.: outra agência no meio de um heartbeat).
+  pids=$(lsof -tnP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null || true)
   [ -n "$pids" ] && kill -9 $pids 2>/dev/null || true
 }
 
