@@ -26,11 +26,19 @@ from pydantic import ValidationError
 
 from .. import config
 from ..esquemas import MensagemCredito, TransferenciaIn
-from ..estado import ID_AGENCIA, contas, registro, relogio
+from ..estado import ID_AGENCIA, contas, registro, relogio, trava_contas
 from ..services import mensageria
 
 
 def transferir(dados: TransferenciaIn) -> dict:
+    # A trava cobre a transferência inteira (inclusive a publicação, que é
+    # curta e tem confirmação): verificar saldo, debitar e, se a publicação
+    # falhar, desfazer - sem outra operação na mesma conta no meio.
+    with trava_contas:
+        return _transferir(dados)
+
+
+def _transferir(dados: TransferenciaIn) -> dict:
     conta_origem = contas.get(dados.idOrigem)
     if conta_origem is None:
         raise HTTPException(404, "Conta de origem nao encontrada nesta agencia.")
@@ -42,6 +50,7 @@ def transferir(dados: TransferenciaIn) -> dict:
     # O débito é SEMPRE local: esta agência é a dona da conta de origem.
     ts_debito = relogio.evento_local()
     conta_origem["saldo"] -= dados.valor
+    conta_origem["vetor"] = ts_debito
     registro.registrar(
         "TRANSFERENCIA_DEBITO",
         ts_debito,
@@ -53,15 +62,17 @@ def transferir(dados: TransferenciaIn) -> dict:
         conta_destino = contas.get(dados.idDestino)
         if conta_destino is None:
             conta_origem["saldo"] += dados.valor  # desfaz o débito
+            conta_origem["vetor"] = relogio.evento_local()
             registro.registrar(
                 "TRANSFERENCIA_DESFEITA",
-                relogio.evento_local(),
+                conta_origem["vetor"],
                 {"motivo": "conta de destino inexistente", "idDestino": dados.idDestino},
             )
             raise HTTPException(404, "Conta de destino nao encontrada.")
 
         ts_credito = relogio.evento_local()
         conta_destino["saldo"] += dados.valor
+        conta_destino["vetor"] = ts_credito
         registro.registrar(
             "TRANSFERENCIA_CREDITO",
             ts_credito,
@@ -96,9 +107,10 @@ def transferir(dados: TransferenciaIn) -> dict:
         # Aqui dá para desfazer: o broker NÃO aceitou a mensagem, então
         # nenhum crédito vai acontecer do outro lado.
         conta_origem["saldo"] += dados.valor
+        conta_origem["vetor"] = relogio.evento_local()
         registro.registrar(
             "TRANSFERENCIA_DESFEITA",
-            relogio.evento_local(),
+            conta_origem["vetor"],
             {"motivo": "falha ao publicar no RabbitMQ", "idDestino": dados.idDestino, "erro": str(erro)},
         )
         raise HTTPException(503, "Mensageria indisponivel; transferencia nao realizada.")
@@ -140,6 +152,11 @@ def processar_credito_remoto(conteudo: dict) -> None:
 
     # Regra 3: máximo posição a posição com o vetor recebido + incrementa a
     # própria posição. Vale mesmo que o crédito falhe: a mensagem foi recebida.
+    with trava_contas:
+        _creditar_remoto(msg)
+
+
+def _creditar_remoto(msg: MensagemCredito) -> None:
     ts = relogio.ao_receber(msg.vetorEnvio)
 
     conta = contas.get(msg.idConta)
@@ -158,6 +175,7 @@ def processar_credito_remoto(conteudo: dict) -> None:
         raise mensageria.MensagemRecusada(f"conta {msg.idConta} nao encontrada")
 
     conta["saldo"] += msg.valor
+    conta["vetor"] = ts
     registro.registrar(
         "TRANSFERENCIA_CREDITO_REMOTO",
         ts,

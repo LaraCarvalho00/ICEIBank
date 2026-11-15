@@ -4,6 +4,8 @@ Os nomes dos campos seguem o roteiro (camelCase) para casar com o JSON usado
 nos exemplos de teste. As restrições (`Field(...)`, validadores) rejeitam
 entradas inválidas com HTTP 422 antes de chegar ao controller.
 """
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 from .config import NUMERO_AGENCIAS
@@ -63,3 +65,19 @@ class MensagemCoordenador(BaseModel):
     """``POST /bully/coordenador``: "a agência ``liderId`` venceu a eleição"."""
     liderId: int = Field(ge=0, lt=NUMERO_AGENCIAS)
     vetor: list[int] = Field(min_length=NUMERO_AGENCIAS, max_length=NUMERO_AGENCIAS)
+
+
+# ---- Sprint 3: sincronização offline-first ----
+
+class OperacaoOffline(BaseModel):
+    """Uma operação feita no app enquanto ele estava offline.
+
+    ``vetorBase`` é a versão da conta (``conta["vetor"]``) que o app tinha em
+    cache quando o usuário fez a operação - ou seja, o passado causal dela.
+    """
+    idOperacao: str = Field(min_length=8, max_length=64, description="UUID gerado no app (idempotência).")
+    idConta: int = Field(ge=0)
+    tipo: Literal["DEPOSITO", "SAQUE"]
+    valor: float = Field(gt=0)
+    vetorBase: list[int] = Field(min_length=NUMERO_AGENCIAS, max_length=NUMERO_AGENCIAS)
+    criadaEm: str | None = Field(default=None, description="Hora do aparelho, só para exibição.")

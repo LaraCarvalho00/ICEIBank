@@ -19,6 +19,7 @@ from .controllers import (
     contas_controller,
     historico_controller,
     mensagens_mortas_controller,
+    sincronizacao_controller,
     transferencias_controller,
 )
 from .seguranca import requer_token, requer_token_interno
@@ -112,3 +113,13 @@ router.add_api_route(
 )
 # Consulta aberta: heartbeat das outras agências e painel do app Flutter.
 router.add_api_route("/bully/lider", bully_controller.lider, methods=["GET"], tags=["bully"])
+
+# ---- Sprint 3: sincronização offline-first (app Flutter) ----
+router.add_api_route(
+    "/sync/operacoes",
+    sincronizacao_controller.sincronizar,
+    methods=["POST"],
+    dependencies=_usuario,
+    tags=["sincronizacao"],
+    responses={409: {"description": "Conflito: a conta mudou enquanto o app estava offline."}},
+)
