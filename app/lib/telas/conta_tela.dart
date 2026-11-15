@@ -76,6 +76,16 @@ class _ContaTelaState extends State<ContaTela> {
           appBar: AppBar(
             title: Text('Conta ${conta.id}'),
             actions: [
+              // Mesmo alternador do menu da tela principal: liga/desliga o
+              // modo offline simulado sem sair da conta.
+              IconButton(
+                tooltip: _estado.offlineSimulado ? 'Desligar modo offline' : 'Simular offline',
+                icon: Icon(
+                  _estado.online ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+                  color: _estado.online ? Cores.destaque : Cores.alerta,
+                ),
+                onPressed: () => _estado.definirOfflineSimulado(!_estado.offlineSimulado),
+              ),
               IconButton(
                 tooltip: 'Remover deste aparelho',
                 icon: const Icon(Icons.delete_outline),
@@ -95,6 +105,29 @@ class _ContaTelaState extends State<ContaTela> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if (!_estado.online)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Cores.alerta.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.cloud_off, color: Cores.alerta, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _estado.offlineSimulado
+                                ? 'Modo offline simulado. Depositos e saques ficam na fila do aparelho.'
+                                : 'Sem conexao. Depositos e saques ficam na fila e sincronizam ao reconectar.',
+                            style: const TextStyle(color: Cores.alerta),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(20),
