@@ -9,6 +9,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:iceibank_app/modelos.dart';
 import 'package:iceibank_app/servicos/api.dart';
 import 'package:iceibank_app/servicos/estado_app.dart';
 import 'package:iceibank_app/servicos/monitor_lideranca.dart';
@@ -86,4 +87,74 @@ void main() {
       print('${formatarHora(e.quando)}  ${e.texto}');
     }
   }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('offline-first: fila, saldo otimista e sincronizacao em ordem ao reconectar', () async {
+    if (!noAr) return markTestSkipped('agencias fora do ar');
+    final estado = await novoEstado();
+    await estado.entrar('lara', 'iceibank');
+    final id = base + 3;
+    await estado.criarConta(id, 'Caio', 100);
+
+    await estado.definirOfflineSimulado(true);
+    expect(estado.online, isFalse);
+    expect(await estado.depositar(id, 50), contains('salvo no aparelho'));
+    await estado.sacar(id, 30);
+    expect(estado.fila, hasLength(2));
+    expect(estado.saldoExibido(id), 120); // UI otimista
+    expect(estado.contas[id]!.saldoServidor, 100);
+    // saque maior que o saldo otimista é barrado ainda offline
+    await expectLater(estado.sacar(id, 500), throwsA(isA<ErroApi>()));
+
+    await estado.definirOfflineSimulado(false); // reconecta -> sincroniza
+    expect(estado.fila, isEmpty);
+    expect(estado.contas[id]!.saldoServidor, 120);
+    expect(estado.historico.take(2).map((r) => r.resultado), everyElement('APLICADA'));
+  });
+
+  test('offline-first: conflito 409 visivel, rollback otimista e reaplicacao', () async {
+    if (!noAr) return markTestSkipped('agencias fora do ar');
+    final estado = await novoEstado();
+    await estado.entrar('lara', 'iceibank');
+    final id = base + 6;
+    await estado.criarConta(id, 'Duda', 100);
+
+    await estado.definirOfflineSimulado(true);
+    await estado.sacar(id, 30);
+    await estado.depositar(id, 5);
+
+    // Enquanto o app está offline, outro cliente (ex.: o frontend web) mexe na conta.
+    final outro = Api(host: 'localhost')..token = estado.api.token;
+    await outro.depositar(id, 10);
+
+    await estado.definirOfflineSimulado(false);
+    final saque = estado.fila.first;
+    expect(saque.status, StatusOperacao.conflito);
+    expect(saque.conflito!['relacao'], 'ANTES');
+    expect(saque.conflito!['escritasConcorrentes'], isNotEmpty);
+    expect(estado.fila[1].status, StatusOperacao.pendente); // bloqueada atrás do conflito
+    expect(estado.contas[id]!.saldoServidor, 110); // cache atualizado com o servidor
+    expect(estado.saldoExibido(id), 115); // o saque em conflito saiu do saldo (rollback)
+
+    await estado.resolverConflito(saque, reaplicar: true);
+    expect(estado.fila, isEmpty);
+    expect(estado.contas[id]!.saldoServidor, 85);
+  });
+
+  test('funcionalidade adicional: deposito offline concorrente e mesclado', () async {
+    if (!noAr) return markTestSkipped('agencias fora do ar');
+    final estado = await novoEstado();
+    await estado.entrar('lara', 'iceibank');
+    final id = base + 9;
+    await estado.criarConta(id, 'Edu', 100);
+
+    await estado.definirOfflineSimulado(true);
+    await estado.depositar(id, 20);
+    final outro = Api(host: 'localhost')..token = estado.api.token;
+    await outro.sacar(id, 10);
+
+    await estado.definirOfflineSimulado(false);
+    expect(estado.fila, isEmpty);
+    expect(estado.historico.first.resultado, 'MESCLADA');
+    expect(estado.contas[id]!.saldoServidor, 110);
+  });
 }

@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../config.dart';
+import '../modelos.dart';
 import '../servicos/estado_app.dart';
 import '../widgets/comum.dart';
 import '../widgets/tema.dart';
@@ -79,8 +80,12 @@ class _ContaTelaState extends State<ContaTela> {
                 tooltip: 'Remover deste aparelho',
                 icon: const Icon(Icons.delete_outline),
                 onPressed: () async {
-                  await _estado.esquecerConta(conta.id);
-                  if (context.mounted) Navigator.pop(context);
+                  try {
+                    await _estado.esquecerConta(conta.id);
+                    if (context.mounted) Navigator.pop(context);
+                  } catch (e) {
+                    if (context.mounted) avisarErro(context, e);
+                  }
                 },
               ),
             ],
@@ -152,11 +157,65 @@ class _ContaTelaState extends State<ContaTela> {
     );
   }
 
-  /// Linhas extras sob o saldo (preenchidas pelo modo offline-first).
-  List<Widget> _detalhesSaldo(int id) => const [];
+  /// UI otimista: deixa claro quanto do saldo exibido ainda não foi
+  /// confirmado pelo servidor.
+  List<Widget> _detalhesSaldo(int id) {
+    final ops = _estado.pendentesDa(id);
+    if (ops.isEmpty) {
+      return const [
+        SizedBox(height: 4),
+        Text('Confirmado pelo servidor', style: TextStyle(color: Cores.destaque, fontSize: 12)),
+      ];
+    }
+    final conta = _estado.contas[id]!;
+    final efeito = ops.fold<double>(0, (s, o) => s + o.efeitoOtimista);
+    return [
+      const SizedBox(height: 4),
+      Text(
+        'Confirmado no servidor: ${formatarReais(conta.saldoServidor)} · '
+        'pendente: ${efeito >= 0 ? '+' : ''}${formatarReais(efeito)}',
+        style: const TextStyle(color: Cores.alerta, fontSize: 13),
+      ),
+    ];
+  }
 
-  /// Operações desta conta ainda na fila (preenchidas pelo modo offline-first).
-  List<Widget> _pendencias(int id) => const [];
+  /// Operações desta conta ainda na fila.
+  List<Widget> _pendencias(int id) {
+    final ops = _estado.pendentesDa(id);
+    if (ops.isEmpty) return const [];
+    return [
+      const Padding(
+        padding: EdgeInsets.only(top: 24, bottom: 8),
+        child: Text('Operacoes offline desta conta', style: TextStyle(color: Cores.textoSuave)),
+      ),
+      for (final op in ops)
+        Card(
+          child: ListTile(
+            leading: Icon(
+              switch (op.status) {
+                StatusOperacao.pendente => Icons.schedule,
+                StatusOperacao.enviando => Icons.cloud_upload_outlined,
+                StatusOperacao.conflito => Icons.warning_amber_rounded,
+                StatusOperacao.rejeitada => Icons.block,
+              },
+              color: op.status == StatusOperacao.conflito || op.status == StatusOperacao.rejeitada
+                  ? Cores.erro
+                  : Cores.alerta,
+            ),
+            title: Text('${op.tipo == 'DEPOSITO' ? 'Deposito' : 'Saque'} de ${formatarReais(op.valor)}'),
+            subtitle: Text(
+              switch (op.status) {
+                StatusOperacao.pendente => 'Aguardando conexao',
+                StatusOperacao.enviando => 'Enviando...',
+                StatusOperacao.conflito => 'Conflito - resolva na aba Sincronizacao (fora do saldo)',
+                StatusOperacao.rejeitada => 'Rejeitada: ${op.erro ?? ''} (fora do saldo)',
+              },
+              style: const TextStyle(color: Cores.textoSuave),
+            ),
+          ),
+        ),
+    ];
+  }
 }
 
 class _DialogoTransferencia extends StatefulWidget {

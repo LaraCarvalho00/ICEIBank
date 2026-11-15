@@ -129,8 +129,11 @@ class _CartaoConta extends StatelessWidget {
         onTap: aoTocar,
         title: Text('Conta ${conta.id} · ${conta.nome}'),
         subtitle: Text(
-          'Agencia ${ConfigApp.agenciaDaConta(conta.id)} · versao ${vetorTexto(conta.vetor)}',
-          style: const TextStyle(color: Cores.textoSuave),
+          'Agencia ${ConfigApp.agenciaDaConta(conta.id)} · versao ${vetorTexto(conta.vetor)}'
+          '${estado.pendentesDa(conta.id).isEmpty ? '' : '\n${estado.pendentesDa(conta.id).length} operacao(oes) na fila'}',
+          style: TextStyle(
+            color: estado.pendentesDa(conta.id).isEmpty ? Cores.textoSuave : Cores.alerta,
+          ),
         ),
         trailing: Text(
           formatarReais(estado.saldoExibido(conta.id)),

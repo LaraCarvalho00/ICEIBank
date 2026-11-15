@@ -8,7 +8,9 @@ import 'widgets/tema.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final estado = await EstadoApp.iniciar();
+  final estado = await EstadoApp.iniciar()
+    // Offline-first: tenta reconectar e esvaziar a fila sozinho.
+    ..iniciarSincronizacaoAutomatica();
   // O painel de liderança não depende de login (GET /bully/lider é aberta).
   final monitor = MonitorLideranca(estado.api)..iniciar();
   runApp(IceibankApp(estado: estado, monitor: monitor));
