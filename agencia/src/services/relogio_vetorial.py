@@ -25,6 +25,11 @@ class RelogioVetorial:
         # Todas mexem no mesmo vetor.
         self._lock = threading.Lock()
 
+    def atual(self) -> list[int]:
+        """Cópia do vetor neste instante (só leitura, não é um evento)."""
+        with self._lock:
+            return list(self.vetor)
+
     def evento_local(self) -> list[int]:
         """Regra 1: incrementa a própria posição antes de um evento local."""
         with self._lock:

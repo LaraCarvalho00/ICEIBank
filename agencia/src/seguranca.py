@@ -9,9 +9,11 @@ Decisões de design (detalhadas e justificadas em RESPOSTAS.md):
 - **Token:** HS256, expira em ``JWT_EXPIRACAO_MIN`` minutos (padrão 30). Claims:
   ``sub`` (usuário), ``escopo``, ``iat``, ``exp``.
 - **Comunicação entre agências:** no Sprint 1 era uma chamada REST com token de
-  escopo ``"interno"``. No Sprint 2 virou mensagem no RabbitMQ, que não passa
-  pelo FastAPI - a confiança ali vem das credenciais do broker (ver
-  RESPOSTAS.md, Parte C, pergunta 3).
+  escopo ``"interno"``. No Sprint 2 o crédito virou mensagem no RabbitMQ, que
+  não passa pelo FastAPI - a confiança ali vem das credenciais do broker (ver
+  RESPOSTAS.md, Parte C, pergunta 3). No Sprint 3 o escopo ``"interno"`` volta
+  a ser usado pelas mensagens de eleição (``/bully/eleicao`` e
+  ``/bully/coordenador``).
 """
 import hashlib
 import hmac
@@ -87,3 +89,22 @@ def _decodificar(authorization: str | None) -> dict:
 def requer_token(authorization: str | None = Header(default=None)) -> dict:
     """Dependency: exige um JWT válido e não expirado (autenticação)."""
     return _decodificar(authorization)
+
+
+def requer_token_interno(authorization: str | None = Header(default=None)) -> dict:
+    """Dependency das rotas agência -> agência (Sprint 3: eleição de líder).
+
+    Exige um JWT de escopo ``"interno"``, assinado com o mesmo segredo. Um
+    usuário comum (escopo ``"usuario"``) não consegue forjar uma mensagem de
+    eleição ou se declarar coordenador.
+    """
+    claims = _decodificar(authorization)
+    if claims.get("escopo") != "interno":
+        raise HTTPException(403, "Rota interna: exige token de escopo 'interno'.")
+    return claims
+
+
+def cabecalho_interno(id_agencia: int) -> dict:
+    """Cabeçalho ``Authorization`` que uma agência usa ao chamar outra."""
+    token = criar_token(sub=f"agencia-{id_agencia}", escopo="interno", expira_em=timedelta(minutes=1))
+    return {"Authorization": f"Bearer {token}"}

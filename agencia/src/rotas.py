@@ -15,12 +15,13 @@ from fastapi import APIRouter, Depends
 
 from .controllers import (
     auth_controller,
+    bully_controller,
     contas_controller,
     historico_controller,
     mensagens_mortas_controller,
     transferencias_controller,
 )
-from .seguranca import requer_token
+from .seguranca import requer_token, requer_token_interno
 
 router = APIRouter()
 
@@ -91,3 +92,23 @@ router.add_api_route(
     dependencies=_usuario,
     tags=["mensageria"],
 )
+
+# ---- Sprint 3: eleição de líder (Bully) ----
+# Mensagens entre agências: exigem token de escopo "interno".
+_interno = [Depends(requer_token_interno)]
+router.add_api_route(
+    "/bully/eleicao",
+    bully_controller.eleicao,
+    methods=["POST"],
+    dependencies=_interno,
+    tags=["bully"],
+)
+router.add_api_route(
+    "/bully/coordenador",
+    bully_controller.coordenador,
+    methods=["POST"],
+    dependencies=_interno,
+    tags=["bully"],
+)
+# Consulta aberta: heartbeat das outras agências e painel do app Flutter.
+router.add_api_route("/bully/lider", bully_controller.lider, methods=["GET"], tags=["bully"])

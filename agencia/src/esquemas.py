@@ -6,6 +6,8 @@ entradas inválidas com HTTP 422 antes de chegar ao controller.
 """
 from pydantic import BaseModel, Field, model_validator
 
+from .config import NUMERO_AGENCIAS
+
 
 class CriarContaIn(BaseModel):
     id: int = Field(ge=0, description="Número da conta (inteiro >= 0).")
@@ -46,3 +48,18 @@ class MensagemCredito(BaseModel):
 class LoginIn(BaseModel):
     usuario: str = Field(min_length=1)
     senha: str = Field(min_length=1)
+
+
+# ---- Sprint 3: eleição de líder (Bully) ----
+
+class MensagemEleicao(BaseModel):
+    """``POST /bully/eleicao``: "sou a agência ``origemId`` e estou convocando
+    uma eleição". Só é enviada a agências de ID MAIOR que o da origem."""
+    origemId: int = Field(ge=0, lt=NUMERO_AGENCIAS)
+    vetor: list[int] = Field(min_length=NUMERO_AGENCIAS, max_length=NUMERO_AGENCIAS)
+
+
+class MensagemCoordenador(BaseModel):
+    """``POST /bully/coordenador``: "a agência ``liderId`` venceu a eleição"."""
+    liderId: int = Field(ge=0, lt=NUMERO_AGENCIAS)
+    vetor: list[int] = Field(min_length=NUMERO_AGENCIAS, max_length=NUMERO_AGENCIAS)
