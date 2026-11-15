@@ -1,0 +1,23 @@
+name: iceibank_app
+description: "ICEIBank - app mobile (Sprint 3): fluxo bancario, painel de lideranca e modo offline-first."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.14.0
+
+dependencies:
+  connectivity_plus: ^7.3.2
+  flutter:
+    sdk: flutter
+  http: ^1.6.0
+  material_ui: ^1.1.0
+  shared_preferences: ^2.5.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
