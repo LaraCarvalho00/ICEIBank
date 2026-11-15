@@ -12,8 +12,8 @@ a operação. O servidor compara esse vetor com a versão atual da conta
   é o próximo passo natural da história da conta -> aplica (200).
 - ``ANTES``: a conta tem escritas que o app NÃO viu (depósito pelo frontend web,
   crédito vindo de outra agência...). Essas escritas e a operação offline são
-  CONCORRENTES: nenhuma estava no passado causal da outra. O servidor não
-  escolhe por conta própria -> 409 com o estado atual da conta e as escritas
+  CONCORRENTES: nenhuma estava no passado causal da outra. Para um saque, o
+  servidor não escolhe por conta própria -> 409 com o estado atual da conta e as escritas
   concorrentes, para o usuário decidir no app (reaplicar ou descartar).
 - ``DEPOIS``/``CONCORRENTES``: o app diz conhecer uma versão que o servidor não
   tem. Acontece quando a agência reiniciou (o relógio vive em memória e voltou
@@ -23,10 +23,15 @@ Por que não aplicar sempre e pronto: o saldo que o usuário viu na tela offline
 (UI otimista) foi calculado sobre ``vetorBase``. Aplicar um saque sobre uma
 versão diferente pode dar um resultado que ninguém viu nem aprovou.
 
+Funcionalidade adicional (seção 2.1): no caso ``ANTES``, um DEPÓSITO é
+mesclado automaticamente (200, ``"status": "MESCLADA"``) - ver o comentário
+em ``sincronizar``. Saques continuam indo para o 409.
+
 Idempotência: se a resposta se perder no caminho, o app reenvia a mesma
 ``idOperacao``; o resultado guardado é devolvido sem aplicar de novo.
 """
 import json
+import os
 
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
@@ -36,6 +41,10 @@ from ..esquemas import OperacaoOffline
 from ..estado import ID_AGENCIA, INICIO_PROCESSO, contas, operacoes_sincronizadas, registro, relogio, trava_contas
 from ..services.relogio_vetorial import comparar
 from .contas_controller import aplicar_deposito, aplicar_saque
+
+# Funcionalidade adicional - pode ser desligada (MESCLAR_DEPOSITOS=0) para ver
+# o conflito "puro" (409) também em depósitos.
+MESCLAR_DEPOSITOS = os.environ.get("MESCLAR_DEPOSITOS", "1") != "0"
 
 
 def _escritas_nao_vistas(id_conta: int, vetor_base: list[int], limite: int = 20) -> list[dict]:
@@ -80,6 +89,43 @@ def sincronizar(op: OperacaoOffline):
 
         versao = conta["vetor"]
         relacao = comparar(op.vetorBase, versao)
+
+        # Funcionalidade adicional (seção 2.1): mesclagem automática de
+        # operações comutativas. Um DEPÓSITO concorrente com escritas que o app
+        # não viu pode ser aplicado sobre a versão atual sem risco: somar um
+        # valor positivo nunca invalida o saldo que essas escritas produziram,
+        # e a ordem entre somas não muda o resultado (o mesmo princípio de um
+        # contador CRDT). O conflito continua DETECTADO e registrado
+        # (SYNC_MESCLADA, com as escritas concorrentes), só não exige decisão
+        # do usuário. Um SAQUE nunca é mesclado: ele depende do saldo que o
+        # usuário viu, e esse saldo mudou.
+        if relacao == "ANTES" and op.tipo == "DEPOSITO" and MESCLAR_DEPOSITOS:
+            nao_vistas = _escritas_nao_vistas(op.idConta, op.vetorBase)
+            extra = {
+                "origem": "sync-offline-mesclada",
+                "idOperacao": op.idOperacao,
+                "vetorBase": op.vetorBase,
+                "vetorServidorAntes": versao,
+            }
+            atualizada = aplicar_deposito(op.idConta, op.valor, extra)
+            registro.registrar(
+                "SYNC_MESCLADA",
+                relogio.evento_local(),
+                {"idOperacao": op.idOperacao, "idConta": op.idConta, "valor": op.valor,
+                 "vetorBase": op.vetorBase, "vetorServidorAntes": versao, "relacao": relacao},
+            )
+            resultado = {
+                "status": "MESCLADA",
+                "motivo": "Deposito concorrente aplicado sobre a versao atual (operacao comutativa).",
+                "idOperacao": op.idOperacao,
+                "relacao": relacao,
+                "vetorBase": op.vetorBase,
+                "vetorServidorAntes": versao,
+                "escritasConcorrentes": nao_vistas,
+                "conta": atualizada,
+            }
+            operacoes_sincronizadas[op.idOperacao] = resultado
+            return resultado
 
         if relacao != "IGUAIS":
             if relacao == "ANTES":
