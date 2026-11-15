@@ -1,7 +1,235 @@
 # RESPOSTAS - ICEIBank
 
+- [Sprint 3 - App Flutter + Eleição de líder (Bully) + Offline-first](#sprint-3---app-flutter--eleição-de-líder-bully--offline-first)
 - [Sprint 2 - Mensageria (Pub/Sub) + Relógio vetorial](#sprint-2---mensageria-pubsub--relógio-vetorial)
 - [Sprint 1 - REST/MVC + Relógio de Lamport](#sprint-1---restmvc--relógio-de-lamport)
+
+---
+
+# Sprint 3 - App Flutter + Eleição de líder (Bully) + Offline-first
+
+**Aluna:** Lara Carvalho
+**Backend:** Python (FastAPI), o mesmo dos Sprints 1-2. Chamadas entre agências
+com `httpx` (timeout de 1 s).
+**App:** Flutter 3.50 (`http`, `shared_preferences`, `connectivity_plus`).
+
+## Nota de transparência - uso de IA (Sprint 3)
+
+Usei o **Claude (Anthropic)** como apoio para adaptar o algoritmo de Bully e o
+endpoint de sincronização do roteiro (Node) para Python, estruturar o app
+Flutter, revisar o código e organizar esta documentação. Rodei tudo contra as
+minhas agências reais, e cada trecho entregue é passível de explicação e defesa
+por mim.
+
+## O que mudou em relação ao Sprint 2
+
+| Peça | Sprint 2 | Sprint 3 |
+|---|---|---|
+| Coordenação entre agências | nenhuma, todas iguais | uma **líder** eleita pelo Bully (maior ID vivo) |
+| Falha de uma agência | percebida só por quem tenta falar com ela | **heartbeat** detecta a queda da líder e reelege sozinho |
+| Conta | `{id, nomeAluno, saldo}` | + `vetor`: a **versão** da conta (carimbo da última escrita) |
+| Cliente | frontend web (sempre online) | + app Flutter **offline-first** com fila local |
+| Escopo `interno` do JWT | sem uso (o crédito virou mensagem) | volta a ser usado nas mensagens de eleição |
+
+Arquivos principais: `agencia/src/services/bully.py`,
+`agencia/src/services/heartbeat.py`,
+`agencia/src/controllers/sincronizacao_controller.py`,
+`agencia/historico_lideranca.py` e o app em `app/lib/`
+(`servicos/estado_app.dart`, `servicos/monitor_lideranca.dart`).
+
+## Decisões de design
+
+### Parte A - Eleição (Bully)
+
+- **Rotas mantidas como no roteiro:** `POST /bully/eleicao`
+  (`{origemId, vetor}`), `POST /bully/coordenador` (`{liderId, vetor}`) e
+  `GET /bully/lider`. Toda mensagem leva o vetor e aplica a regra 3 do relógio
+  vetorial ao chegar (`ao_receber`). Por isso o `historico_lideranca.py`
+  consegue provar que cada anúncio vem causalmente antes do reconhecimento.
+- **As duas rotas POST exigem JWT de escopo `interno`**
+  (`requer_token_interno`). Um token de usuário recebe 403, então um cliente
+  comum não consegue se declarar coordenador. `GET /bully/lider` é aberta: o
+  heartbeat e o painel do app a consultam sem login.
+- **Convocação em paralelo:** a ELEIÇÃO vai para todas as agências de ID maior
+  ao mesmo tempo (uma thread por destino). Uma rodada leva no máximo ~1 timeout
+  (1 s), e não 1 s por agência morta.
+- **Responder já e eleger depois:** quem recebe ELEIÇÃO responde
+  `{"ok": true}` na hora e dispara a própria eleição numa thread. Se esperasse
+  a própria eleição terminar, estouraria o timeout de 1 s de quem perguntou, e
+  essa agência se declararia líder por engano.
+- **Ceder com prazo:** quem recebeu OK espera o COORDENADOR por até 3 s. Se
+  ele não chegar (a maior caiu no meio da eleição), recomeça.
+- **COORDENADOR de alguém com ID menor é recusado**
+  (`COORDENADOR_RECUSADO`) e a agência convoca a própria eleição, que vence. É
+  o que faz a agência 2, ao voltar de uma queda, retomar a liderança da 1.
+- **Concorrência:** `_lider_atual` e `_em_eleicao` são lidos e escritos pela
+  thread do heartbeat, pelas threads de eleição e pelo threadpool do FastAPI.
+  Todo acesso passa por um `threading.Lock`, e uma flag impede duas eleições
+  simultâneas na mesma agência. É o mesmo cuidado que o relógio já tinha.
+
+### Parte B - Heartbeat
+
+- Thread daemon por agência: a cada **2 s** consulta `GET /bully/lider` da
+  líder (timeout de 1 s). Depois de **2 falhas seguidas** registra
+  `LIDER_INALCANCAVEL` e convoca a eleição. A líder não vigia a si mesma.
+- Tolerar 2 falhas evita trocar de líder por causa de um pacote perdido. O
+  custo é o tempo de detecção: pior caso ≈ 2 × 2 + 1 = 5 s. Os dois valores
+  são configuráveis (`HEARTBEAT_INTERVALO`, `HEARTBEAT_FALHAS`).
+- `esquecer_lider()` só apaga a líder se ela ainda for a mesma que o heartbeat
+  estava vigiando. Se um COORDENADOR novo chegou enquanto o heartbeat esperava
+  o timeout, ele não é desfeito.
+
+### Parte C - `historico_lideranca.py`
+
+Equivalente Python do `historico-lideranca.js`, como o `mesclar_logs.py` foi
+para o `mesclar-logs.js`. Reconstrói os **mandatos** (quem, de quando até
+quando, por que terminou), mede o **tempo sem líder** de cada failover e casa
+cada `LIDER_ELEITO` com o primeiro `NOVO_LIDER` de cada outra agência,
+conferindo `comparar(...) == "ANTES"`. Também detecta quando a líder
+**reiniciou**: a posição dela no vetor volta para trás, porque o relógio vive
+em memória.
+
+### Parte E - Sincronização offline-first (backend)
+
+- **Versão da conta:** toda escrita (criar, depositar, sacar, débito/crédito
+  de transferência, crédito remoto, desfazer) grava `conta["vetor"]` com o
+  carimbo do evento, e todas as respostas de conta devolvem esse vetor.
+- **`POST /sync/operacoes`** recebe uma operação por vez, com `vetorBase`, a
+  versão que o app conhecia, e compara com `comparar()`, a mesma função pura do
+  `mesclar_logs.py`:
+  - `IGUAIS` → ninguém mexeu na conta desde que o app a viu → aplica (200);
+  - `ANTES` → há escritas no servidor que **não estão no passado causal** da
+    operação offline, e a operação também não está no passado delas: são
+    **concorrentes** → 409 (saque) ou mesclagem (depósito, ver funcionalidade
+    adicional);
+  - `DEPOIS`/`CONCORRENTES` → o app conhece uma versão que o servidor não tem
+    (a agência reiniciou e o relógio voltou a zero) → 409.
+- **O 409 explica o conflito:** devolve a relação, os dois vetores, a conta
+  atual e as **escritas concorrentes**: os eventos do log da conta cujo vetor
+  não é `<=` ao `vetorBase`.
+- **Idempotência:** o resultado fica guardado por `idOperacao`. Se a resposta
+  se perder e o app reenviar, vem `JA_APLICADA` sem aplicar de novo.
+- **Trava de contas:** "ler versão → comparar → aplicar" precisa ser atômico
+  contra o threadpool do FastAPI e a thread do consumidor RabbitMQ (um crédito
+  remoto no meio mudaria a versão). Para isso entrou uma `RLock`
+  (`estado.trava_contas`), usada também pelas rotas antigas de conta e
+  transferência.
+
+### Parte F - App offline-first
+
+- **Armazenamento local:** `shared_preferences` com JSON (contas, fila,
+  histórico). O volume é pequeno e funciona igual em Android, iOS, web e
+  macOS, sem esquema nem migração (o sqflite não roda na web sem adaptação).
+- **Quando a operação vai para a fila:** depósito/saque tenta a rota de sempre
+  (`/contas/{id}/depositar|sacar`). Se der `SemConexao` (timeout, conexão
+  recusada, modo offline simulado), vira uma `OperacaoPendente` com
+  `vetorBase = conta.vetor` e `idOperacao` UUID. Se a conta **já tem algo na
+  fila**, a nova operação entra na fila mesmo online, para não passar na frente
+  das anteriores.
+- **UI otimista:** saldo exibido = saldo confirmado + efeito das pendentes. A
+  tela mostra as duas partes ("Confirmado no servidor: ... · pendente: ...").
+  Operação em conflito ou rejeitada sai da conta: é o **rollback** do
+  otimismo. Um saque offline maior que o saldo otimista é barrado já no app.
+- **Sincronização automática:** `connectivity_plus` avisa quando a rede do
+  aparelho volta, mas isso não garante que a **agência** esteja no ar. Por isso
+  há também uma tentativa real (`GET /bully/lider`) a cada 4 s enquanto houver
+  fila ou o app estiver offline. A fila vai **em ordem**. Depois que uma
+  operação é aplicada, as seguintes da mesma conta que tinham a mesma base
+  passam a usar a versão nova, porque vêm causalmente depois dela.
+- **409 visível:** a operação fica `conflito`, as demais da conta ficam
+  bloqueadas atrás dela, aparece uma faixa vermelha em todas as abas e um
+  cartão na aba *Sincronização* com motivo, relação vetorial, versão do app ×
+  versão do servidor, saldo do servidor e escritas concorrentes. O usuário
+  escolhe **Reaplicar sobre o saldo atual** (rebaseia para a versão do servidor
+  e reenvia) ou **Descartar**.
+- **Sessão expirada no meio da sincronização:** a fila não é perdida. O app
+  volta para o login e, depois de entrar, continua de onde parou.
+- **Transferência e criação de conta exigem conexão.** A transferência tira
+  dinheiro para outra agência via RabbitMQ, e não há como "desfazer" do lado do
+  app se ela for recusada depois. Prometer na tela um saldo que talvez não se
+  confirme seria pior do que avisar que precisa de rede.
+
+### App - fluxo bancário e painel de liderança
+
+- O app reaproveita a API que já existia, sem mudanças. A agência é escolhida
+  por `id % 3`, como no frontend web, e o login tenta as agências 0, 1 e 2 em
+  ordem, então funciona mesmo com uma fora do ar.
+- O painel consulta `GET /bully/lider` das 3 agências **em paralelo a cada
+  2 s** e classifica o cluster em *estável*, *líder sem resposta* (as outras
+  ainda a reconhecem, antes do heartbeat delas perceber), *eleição em
+  andamento* ou *fora do ar*. As transições viram um histórico ("FAILOVER:
+  Agencia 2 -> Agencia 1", "Agencia 2 (ID maior) assumiu..."). A líder aparece
+  também na barra superior de todas as abas.
+
+---
+
+## Funcionalidade adicional (seção 2.1) - Mesclagem automática de depósitos offline concorrentes
+
+**O que faz:** em `POST /sync/operacoes`, quando o `vetorBase` do app ficou
+para trás (relação `ANTES`) e a operação é um **depósito**, o servidor aplica o
+depósito sobre a versão atual em vez de responder 409. A resposta é
+`200 {"status": "MESCLADA", "vetorServidorAntes": ..., "escritasConcorrentes": [...]}`,
+e o log registra `SYNC_MESCLADA`. O app mostra a operação como `MESCLADA` no
+histórico, com quantas escritas concorrentes foram mescladas, e um aviso
+amarelo. Saques continuam indo para o 409. `MESCLAR_DEPOSITOS=0` desliga a
+mesclagem.
+
+**Por que é seguro:** somar um valor positivo é **comutativo** (a ordem entre
+o depósito offline e as escritas concorrentes não muda o saldo final) e
+**nunca invalida** o que as escritas concorrentes produziram. Um saque
+concorrente que já tinha sido aprovado continua válido com mais dinheiro na
+conta. É o mesmo princípio de um contador CRDT. O saque não tem essa
+propriedade: ele foi aprovado pelo usuário em cima de um saldo que mudou, e
+pode deixar de caber.
+
+**Por que escolhi:** sem ela, qualquer escrita concorrente gerava conflito,
+inclusive um crédito de transferência que chegou pela fila enquanto o usuário
+estava offline. O usuário teria de decidir sobre casos em que só existe uma
+resposta correta. A detecção vetorial continua igual: o servidor **sabe** que
+houve concorrência e registra isso. O que muda é que ele só pede decisão
+humana quando ela é necessária.
+
+**Observado no teste** (`app/test/integracao_test.dart`, "deposito offline
+concorrente e mesclado", e com `curl`): conta com saldo 100 e versão
+`[6, 5, 9]`; saque de 30 pela API (versão `[7, 5, 9]`); depósito offline de
+50 com `vetorBase [6, 5, 9]` → `MESCLADA`, relação `ANTES`, escrita
+concorrente `SAQUE [7, 5, 9]`, saldo final 120 e versão `[8, 5, 9]`. O saque
+offline de 20 com a mesma base logo depois → **409**.
+
+**Evidência:** `evidencias/sprint3/funcionalidade-adicional.png`.
+
+---
+
+## Comportamento observado nos testes
+
+Medições das minhas execuções locais, que servem de base para as questões:
+
+- **Tempestade inicial:** com as 3 agências subindo ao mesmo tempo, as três
+  convocaram eleição (`ELEICAO_INICIADA`). A 0 consultou `[1, 2]` e cedeu, a
+  1 consultou `[2]` e cedeu, e a 2 não tinha ninguém acima e se elegeu com
+  vetor `[0, 0, 2]`. As 0 e 1 registraram `NOVO_LIDER {lider: 2}` com vetores
+  `[3, 0, 2]` e `[1, 3, 2]`, ambos `ANTES` do anúncio. Convergência em menos
+  de 1 s depois da subida.
+- **Failover:** derrubei a 2 às 22:50:37. A 1 registrou `LIDER_INALCANCAVEL`
+  às 22:50:40.950 (2 falhas seguidas) e se elegeu às 22:50:40.957. A agência 0
+  viu a líder 1 a partir de 22:50:41. Foram **~4 s entre a queda e a nova
+  líder**, dentro do pior caso de 5 s.
+- **Retomada:** ao religar a 2, ela convocou eleição, não teve ninguém acima e
+  anunciou `LIDER_ELEITO` com vetor `[0, 0, 2]` (relógio zerado no reinício).
+  As outras aceitaram. O `historico_lideranca.py` mostra os mandatos
+  `2 → 1 → 2` e marca o fim do primeiro como "queda detectada pelo heartbeat
+  da agencia 1" e o do segundo como "agencia 2 (ID maior) assumiu".
+- **App durante o failover** (teste de integração, que derruba a líder de
+  verdade): `20:02:39 Agencia 2 parou de responder` →
+  `Lider 2 nao responde - aguardando o heartbeat` →
+  `20:02:41 FAILOVER: Agencia 2 -> Agencia 1` →
+  `20:02:42 Agencia 2 (ID maior) assumiu a lideranca no lugar da 1`.
+- **Conflito:** conta com 100 e versão `[6, 5, 9]`; saque offline de 10
+  aplicado (`IGUAIS`, versão `[7, 5, 9]`), transferência de 5 pela API
+  (`[8, 5, 9]`). Um depósito offline com a base antiga `[6, 5, 9]`, com
+  mesclagem desligada, voltou **409**, relação `ANTES`, listando o saque e a
+  transferência como escritas concorrentes. Uma base "do futuro" `[99, 0, 0]`
+  voltou 409 com relação `CONCORRENTES`.
 
 ---
 
