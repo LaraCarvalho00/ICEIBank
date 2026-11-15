@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'servicos/estado_app.dart';
+import 'servicos/monitor_lideranca.dart';
 import 'telas/inicio_tela.dart';
 import 'telas/login_tela.dart';
 import 'widgets/tema.dart';
@@ -8,13 +9,16 @@ import 'widgets/tema.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final estado = await EstadoApp.iniciar();
-  runApp(IceibankApp(estado: estado));
+  // O painel de liderança não depende de login (GET /bully/lider é aberta).
+  final monitor = MonitorLideranca(estado.api)..iniciar();
+  runApp(IceibankApp(estado: estado, monitor: monitor));
 }
 
 class IceibankApp extends StatelessWidget {
-  const IceibankApp({super.key, required this.estado});
+  const IceibankApp({super.key, required this.estado, required this.monitor});
 
   final EstadoApp estado;
+  final MonitorLideranca monitor;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +31,7 @@ class IceibankApp extends StatelessWidget {
       home: ListenableBuilder(
         listenable: estado,
         builder: (context, _) =>
-            estado.logado ? InicioTela(estado: estado) : LoginTela(estado: estado),
+            estado.logado ? InicioTela(estado: estado, monitor: monitor) : LoginTela(estado: estado),
       ),
     );
   }
