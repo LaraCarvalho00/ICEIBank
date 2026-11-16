@@ -233,10 +233,19 @@ Medições das minhas execuções locais, que servem de base para as questões:
 
 ---
 
+## Questões das seções 5.5, 6.4, 7.3, 8.3, 9.6 e 10.3
+
+> **Observação:** a página da tarefa "Sprint 3" no Canvas começa na seção 11
+> (adaptação para Java/Python), checklist e critérios. O texto das seções 1 a
+> 10, onde ficam as perguntas de cada parte, não estava disponível para mim.
+> Por isso, abaixo está a análise de cada parte, organizada pelos temas
+> centrais de cada seção e sempre com referência ao comportamento observado no
+> código e nos prints de `evidencias/sprint3/`. Se as perguntas forem
+> publicadas, respondo a elas diretamente.
+
 ## Parte A - Eleição de líder / Bully (seção 5.5)
 
-**1. Por que as 3 agências sempre convergem para a de maior ID, mesmo com a
-"tempestade" de eleições ao subirem juntas?**
+**1. Convergência para o maior ID e a "tempestade" inicial**
 
 Cada agência só **cede** para alguém de ID maior que respondeu ao seu
 ELEIÇÃO. A de maior ID viva não tem ninguém acima para consultar, então nunca
@@ -260,8 +269,7 @@ A Agência 2 ainda recebeu as eleições "atrasadas" da 0 e da 1
 (`ELEICAO_RECEBIDA`) depois de já ser líder. Isso é normal no Bully e não muda
 o resultado.
 
-**2. Qual o custo do algoritmo em número de mensagens? Isso seria um problema
-com mais agências?**
+**2. Custo em número de mensagens**
 
 No pior caso, quando quem detecta a falha é a agência de **menor** ID, o Bully
 gera O(n²) mensagens. A agência 0 manda ELEIÇÃO para n-1 agências, cada uma
@@ -274,8 +282,7 @@ custo. Na minha implementação, as consultas de uma rodada vão **em paralelo**
 (uma thread por destino). Isso não reduz o número de mensagens, mas faz a
 rodada durar ~1 timeout em vez de 1 timeout por agência morta.
 
-**3. O que acontece se a agência de maior ID estiver lenta (não morta) e não
-responder dentro do timeout de 1 s?**
+**3. Líder lenta (não morta) e o timeout de 1 s**
 
 Ela é tratada como morta: a próxima abaixo dela se elege. Quando a lenta voltar
 a responder, ela recebe o COORDENADOR de alguém com ID menor, recusa
@@ -292,8 +299,7 @@ terminar, também foi necessário para não estourar o timeout de quem perguntou
 
 ## Parte B - Detecção de falha / heartbeat (seção 6.4)
 
-**1. Quanto tempo o sistema levou para perceber a queda da líder e eleger
-outra? Do que esse tempo depende?**
+**1. Tempo de detecção da queda e do failover**
 
 No print `evidencias/sprint3/failover-heartbeat.png`, derrubei a Agência 2 às
 20:24:17. A Agência 0 ainda via a líder 2 às 20:24:18 e 20:24:19, e às
@@ -308,8 +314,7 @@ caso ≈ 2 × 2 + 1 = 5 s. Diminuir esses valores acelera o failover, mas aument
 o tráfego e o risco de **falso positivo**: trocar de líder porque um pacote
 atrasou.
 
-**2. Um timeout no heartbeat prova que a líder caiu? E se for uma partição de
-rede?**
+**2. Timeout não prova queda: falso positivo e partição de rede**
 
 Não prova. Num sistema assíncrono, uma agência lenta e uma agência morta são
 indistinguíveis por quem está de fora. Se a rede se partisse em {0, 1} e {2},
@@ -320,7 +325,7 @@ partição as duas líderes coexistem. A solução clássica é exigir **quórum
 só é líder quem tem o apoio da maioria (2 de 3), como no Raft ou no Paxos. Aí o
 lado minoritário {2} não conseguiria se manter líder.
 
-**3. Quem vigia quem? Por que a líder não faz heartbeat de si mesma?**
+**3. Quem vigia quem**
 
 Cada agência que **não** é líder vigia a líder de forma independente. No
 print, a 0 e a 1 registraram `LIDER_INALCANCAVEL` cada uma por conta própria.
@@ -335,8 +340,7 @@ particionamento, não consenso.
 
 ## Parte C - Histórico de lideranças (seção 7.3)
 
-**1. O que o `historico_lideranca.py` consegue provar com o relógio vetorial
-que a hora de parede sozinha não provaria?**
+**1. O que o relógio vetorial prova no histórico (e a hora de parede não)**
 
 A hora de parede só serve para **ordenar a exibição e medir durações**. Ela
 vem do relógio físico de cada processo e não prova que um evento causou o
@@ -348,8 +352,7 @@ print `evidencias/sprint3/historico-lideranca.png`, os 5 reconhecimentos deram
 vetor de quem reconheceu é ≥ ao do anúncio em todas as posições. Isso é a
 regra 3 do relógio vetorial aplicada à mensagem COORDENADOR.
 
-**2. O script mostra "0.01 s sem líder" no failover. Isso é o tempo real de
-indisponibilidade?**
+**2. "0.01 s sem líder" não é o tempo real de indisponibilidade**
 
 Não. Esse número vai da **detecção** da queda até a nova eleição. O tempo real
 sem líder começa na **queda** (20:24:17), e nenhum log registra esse instante:
@@ -358,7 +361,7 @@ caiu quando o heartbeat falha. O tempo real foi ~3,7 s (queda → detecção às
 20:24:20.750). É um limite do que dá para observar de fora: o log mostra o que
 cada processo **percebeu**, não o que de fato aconteceu.
 
-**3. O que acontece com o vetor quando uma agência reinicia?**
+**3. O vetor quando uma agência reinicia**
 
 O relógio vive em memória e volta a zero. No print, os mandatos #1 e #3 da
 Agência 2 foram eleitos com o **mesmo** vetor `[0, 0, 2]`, porque entre eles a
@@ -373,7 +376,7 @@ contas) em disco, assunto do Sprint 4 (containers com volume).
 
 ## Parte D - App Flutter e painel de liderança (seção 8.3)
 
-**1. Como o app descobre e exibe a líder? E o failover na tela?**
+**1. Como o app descobre e exibe a líder, inclusive no failover**
 
 O app não recebe aviso das agências: ele faz **polling**. A cada 2 s ele
 consulta `GET /bully/lider` das 3 agências em paralelo e classifica o cluster
@@ -391,7 +394,7 @@ simples e não exige nada novo no backend. O custo são 3 requisições a cada 2
 por aparelho e até 2 s de atraso. Com muitos usuários, o melhor seria um canal
 de push: WebSocket, Server-Sent Events ou notificações.
 
-**2. O app manda as operações bancárias para a líder?**
+**2. Por que as operações bancárias não vão para a líder**
 
 Não, e de propósito. A líder é um papel de **coordenação**. As contas
 continuam **particionadas**: a conta X só existe na agência `X % 3`, e é para
@@ -402,7 +405,7 @@ Consequência observada: quando a Agência 2 caiu, as contas da 0 e da 1
 continuaram funcionando normalmente. Só as contas da própria agência 2 ficam
 indisponíveis (e o app as trata como "offline", com fila).
 
-**3. O que foi reaproveitado da API existente?**
+**3. O que foi reaproveitado da API existente**
 
 Tudo do fluxo bancário: `/auth/login` (JWT), `/contas`,
 `/contas/{id}/depositar|sacar` e `/transferencias`, sem nenhuma mudança. A
@@ -417,8 +420,7 @@ para a agencia de destino (entrega assincrona)".
 
 ## Parte E - Sincronização offline-first no backend (seção 9.6)
 
-**1. Como o relógio vetorial detecta que uma operação feita offline está em
-conflito?**
+**1. Como o relógio vetorial detecta o conflito de uma operação offline**
 
 Cada conta guarda a sua **versão**, o vetor da última escrita, e o app guarda
 essa versão junto do saldo em cache. A operação feita offline leva essa versão
@@ -435,7 +437,7 @@ No print `evidencias/sprint3/app-conflito-409.png`, o app conhecia
 deu `ANTES`, e o saque de 30 voltou **409** com o saldo do servidor (R$ 135,00)
 e a escrita concorrente listada.
 
-**2. Por que não usar "a última escrita vence" pela hora do aparelho?**
+**2. Por que não "a última escrita vence" pela hora do aparelho**
 
 Porque a hora do celular não é confiável (pode estar errada ou ter sido
 ajustada) e porque o "vencedor" **apaga** a outra escrita em silêncio. Num
@@ -447,7 +449,7 @@ para o usuário decidir. A exceção é a funcionalidade adicional: um depósito
 comutativo e nunca invalida as outras escritas, então pode ser mesclado sem
 perguntar.
 
-**3. Quais os limites dessa detecção na nossa arquitetura?**
+**3. Limites dessa detecção na nossa arquitetura**
 
 - Como cada conta vive numa **única** agência, as versões de uma conta são
   totalmente ordenadas entre si (vêm do mesmo processo). Na prática, a relação
@@ -463,8 +465,7 @@ perguntar.
 
 ## Parte F - App em modo offline-first (seção 10.3)
 
-**1. O que o usuário vê enquanto está offline, e o que acontece quando a
-operação entra em conflito?**
+**1. UI otimista enquanto offline e rollback no conflito**
 
 A **UI otimista** mostra o saldo como se as operações da fila já tivessem sido
 aplicadas, deixando claro o que ainda não foi confirmado. No print
@@ -478,7 +479,7 @@ O 409 não fica escondido: aparecem um aviso vermelho, uma faixa em todas as
 abas e o cartão com os detalhes, e a decisão (*Reaplicar* ou *Descartar*) fica
 com o usuário.
 
-**2. Por que só depósito e saque funcionam offline, e não a transferência?**
+**2. Por que só depósito e saque funcionam offline**
 
 Depósito e saque mexem só na própria conta: se derem conflito, basta desfazer
 o efeito na tela. A transferência tira dinheiro para **outra agência**, via
@@ -489,7 +490,7 @@ que transferência e criação de conta exigem conexão. Uma transferência offl
 de verdade precisaria de uma transação distribuída com compensação: o Saga do
 Sprint 4.
 
-**3. Que tipo de consistência o modo offline-first oferece?**
+**3. Que consistência o modo offline-first oferece**
 
 **Consistência eventual**. Enquanto está offline, o app e o servidor divergem:
 cada um aceita escritas sem consultar o outro. É a troca do teorema CAP: o
