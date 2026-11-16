@@ -233,6 +233,276 @@ Medições das minhas execuções locais, que servem de base para as questões:
 
 ---
 
+## Parte A - Eleição de líder / Bully (seção 5.5)
+
+**1. Por que as 3 agências sempre convergem para a de maior ID, mesmo com a
+"tempestade" de eleições ao subirem juntas?**
+
+Cada agência só **cede** para alguém de ID maior que respondeu ao seu
+ELEIÇÃO. A de maior ID viva não tem ninguém acima para consultar, então nunca
+recebe um OK. Ela é a única que chega ao passo "ninguém respondeu → sou a
+líder". As menores, ou cedem (recebem OK), ou, se tiverem se declarado por
+engano, têm o anúncio **recusado** pela maior (`COORDENADOR_RECUSADO`), que
+convoca a própria eleição e vence. Não importa quantas eleições comecem ao
+mesmo tempo: todas terminam no mesmo vencedor.
+
+No meu teste (`evidencias/sprint3/eleicao-convergencia.png`), as 3 subiram em
+paralelo e as 3 convocaram eleição (`ELEICAO_INICIADA`):
+
+- a Agência 0 consultou `[1, 2]`, as duas responderam e ela cedeu
+  (`ELEICAO_CEDIDA {'responderam': [1, 2]}`);
+- a Agência 1 consultou `[2]` e cedeu;
+- a Agência 2 consultou `[]` (não há ninguém acima), se elegeu com
+  `LIDER_ELEITO [0, 0, 2]` e notificou `[0, 1]`.
+
+As 3 responderam `GET /bully/lider` com `"liderAtual": 2` em menos de 1 s.
+A Agência 2 ainda recebeu as eleições "atrasadas" da 0 e da 1
+(`ELEICAO_RECEBIDA`) depois de já ser líder. Isso é normal no Bully e não muda
+o resultado.
+
+**2. Qual o custo do algoritmo em número de mensagens? Isso seria um problema
+com mais agências?**
+
+No pior caso, quando quem detecta a falha é a agência de **menor** ID, o Bully
+gera O(n²) mensagens. A agência 0 manda ELEIÇÃO para n-1 agências, cada uma
+das que responderam convoca a sua eleição para as acima dela, e assim por
+diante, somando os OKs e os COORDENADOR no final. Com 3 agências isso é
+irrelevante: na tempestade do print foram 3 ELEIÇÃO, 3 OK e 2 COORDENADOR.
+Com centenas de nós, cada queda da líder dispararia uma rajada de mensagens.
+Algoritmos como o de anel ou eleições baseadas em quórum (Raft) reduzem esse
+custo. Na minha implementação, as consultas de uma rodada vão **em paralelo**
+(uma thread por destino). Isso não reduz o número de mensagens, mas faz a
+rodada durar ~1 timeout em vez de 1 timeout por agência morta.
+
+**3. O que acontece se a agência de maior ID estiver lenta (não morta) e não
+responder dentro do timeout de 1 s?**
+
+Ela é tratada como morta: a próxima abaixo dela se elege. Quando a lenta voltar
+a responder, ela recebe o COORDENADOR de alguém com ID menor, recusa
+(`COORDENADOR_RECUSADO`) e convoca a própria eleição, que vence. O resultado é
+uma **troca de líder a mais**, e por um instante duas agências podem se achar
+líder. O Bully assume um sistema **síncrono** (tempo de resposta limitado), e o
+timeout é justamente essa suposição: se ela for violada, o algoritmo continua
+convergindo, mas com instabilidade. Por isso o timeout não pode ser pequeno
+demais. Responder ao ELEIÇÃO **na hora**, sem esperar a minha própria eleição
+terminar, também foi necessário para não estourar o timeout de quem perguntou
+(ver "Decisões de design").
+
+---
+
+## Parte B - Detecção de falha / heartbeat (seção 6.4)
+
+**1. Quanto tempo o sistema levou para perceber a queda da líder e eleger
+outra? Do que esse tempo depende?**
+
+No print `evidencias/sprint3/failover-heartbeat.png`, derrubei a Agência 2 às
+20:24:17. A Agência 0 ainda via a líder 2 às 20:24:18 e 20:24:19, e às
+20:24:20 já via a **líder 1**: **~3 s entre a queda e a nova líder, sem
+nenhum comando manual**. O `historico_lideranca.py` mostra a detecção
+(`LIDER_INALCANCAVEL`) às 23:24:20.750 UTC e a eleição da 1 às 23:24:20.759: a
+eleição em si leva milissegundos. Quase todo o tempo é **detecção**.
+
+O tempo depende de três parâmetros: o intervalo do heartbeat (2 s), quantas
+falhas seguidas são toleradas (2) e o timeout de cada consulta (1 s). Pior
+caso ≈ 2 × 2 + 1 = 5 s. Diminuir esses valores acelera o failover, mas aumenta
+o tráfego e o risco de **falso positivo**: trocar de líder porque um pacote
+atrasou.
+
+**2. Um timeout no heartbeat prova que a líder caiu? E se for uma partição de
+rede?**
+
+Não prova. Num sistema assíncrono, uma agência lenta e uma agência morta são
+indistinguíveis por quem está de fora. Se a rede se partisse em {0, 1} e {2},
+o lado {0, 1} elegeria a 1 enquanto a 2 continuaria se achando líder: duas
+líderes ao mesmo tempo (*split brain*). O Bully não resolve isso. Quando a
+partição se desfaz, a 2 "valenta" de novo e tudo converge, mas durante a
+partição as duas líderes coexistem. A solução clássica é exigir **quórum**:
+só é líder quem tem o apoio da maioria (2 de 3), como no Raft ou no Paxos. Aí o
+lado minoritário {2} não conseguiria se manter líder.
+
+**3. Quem vigia quem? Por que a líder não faz heartbeat de si mesma?**
+
+Cada agência que **não** é líder vigia a líder de forma independente. No
+print, a 0 e a 1 registraram `LIDER_INALCANCAVEL` cada uma por conta própria.
+Isso é redundância: basta uma perceber a queda. Como as duas convocaram
+eleição, o próprio Bully resolveu: a 0 recebeu OK da 1 e cedeu. A líder não
+vigia a si mesma porque, se ela cair, não há "ela" para perceber. Ela também
+não vigia as outras, porque a queda de uma agência que não é líder não muda a
+liderança. As contas dessa agência ficam indisponíveis, mas isso é
+particionamento, não consenso.
+
+---
+
+## Parte C - Histórico de lideranças (seção 7.3)
+
+**1. O que o `historico_lideranca.py` consegue provar com o relógio vetorial
+que a hora de parede sozinha não provaria?**
+
+A hora de parede só serve para **ordenar a exibição e medir durações**. Ela
+vem do relógio físico de cada processo e não prova que um evento causou o
+outro. O vetor prova: para cada `LIDER_ELEITO` o script acha o `NOVO_LIDER`
+correspondente em cada outra agência e confere `comparar(...) == "ANTES"`. No
+print `evidencias/sprint3/historico-lideranca.png`, os 5 reconhecimentos deram
+`relacao=ANTES (OK, causal)`. Por exemplo,
+`LIDER_ELEITO [0, 0, 2]` (agência 2) → `NOVO_LIDER [3, 0, 2]` (agência 0): o
+vetor de quem reconheceu é ≥ ao do anúncio em todas as posições. Isso é a
+regra 3 do relógio vetorial aplicada à mensagem COORDENADOR.
+
+**2. O script mostra "0.01 s sem líder" no failover. Isso é o tempo real de
+indisponibilidade?**
+
+Não. Esse número vai da **detecção** da queda até a nova eleição. O tempo real
+sem líder começa na **queda** (20:24:17), e nenhum log registra esse instante:
+a agência que caiu não consegue escrever "caí", e as outras só sabem que ela
+caiu quando o heartbeat falha. O tempo real foi ~3,7 s (queda → detecção às
+20:24:20.750). É um limite do que dá para observar de fora: o log mostra o que
+cada processo **percebeu**, não o que de fato aconteceu.
+
+**3. O que acontece com o vetor quando uma agência reinicia?**
+
+O relógio vive em memória e volta a zero. No print, os mandatos #1 e #3 da
+Agência 2 foram eleitos com o **mesmo** vetor `[0, 0, 2]`, porque entre eles a
+2 reiniciou. Um vetor que "anda para trás" quebra a suposição de que a posição
+de cada processo só cresce. O script trata isso: ele detecta que a posição da
+líder diminuiu e abre um novo mandato com o motivo "reiniciou". As outras
+agências não são afetadas, porque o `max` da regra 3 mantém o valor antigo
+delas para a posição 2. A solução definitiva seria persistir o relógio (e as
+contas) em disco, assunto do Sprint 4 (containers com volume).
+
+---
+
+## Parte D - App Flutter e painel de liderança (seção 8.3)
+
+**1. Como o app descobre e exibe a líder? E o failover na tela?**
+
+O app não recebe aviso das agências: ele faz **polling**. A cada 2 s ele
+consulta `GET /bully/lider` das 3 agências em paralelo e classifica o cluster
+em *estável*, *líder sem resposta*, *eleição em andamento* ou *fora do ar*. No
+print `evidencias/sprint3/app-painel-failover.png`, derrubei a Agência 2 e o
+histórico do app mostrou:
+
+- 20:54:13, "Agencia 2 parou de responder";
+- 20:54:13, "Lider 2 nao responde - aguardando o heartbeat das outras
+  agencias" (a fase em que a 0 e a 1 ainda a reconhecem);
+- 20:54:17, "FAILOVER: Agencia 2 -> Agencia 1".
+
+A barra superior trocou para "Lider: Agencia 1" sem recarregar. O polling é
+simples e não exige nada novo no backend. O custo são 3 requisições a cada 2 s
+por aparelho e até 2 s de atraso. Com muitos usuários, o melhor seria um canal
+de push: WebSocket, Server-Sent Events ou notificações.
+
+**2. O app manda as operações bancárias para a líder?**
+
+Não, e de propósito. A líder é um papel de **coordenação**. As contas
+continuam **particionadas**: a conta X só existe na agência `X % 3`, e é para
+ela que o app manda depósito, saque e transferência, exatamente como o
+frontend web. Se a líder fosse a "porta de entrada", ela teria de
+encaminhar tudo, e virar líder mudaria o caminho de todas as requisições.
+Consequência observada: quando a Agência 2 caiu, as contas da 0 e da 1
+continuaram funcionando normalmente. Só as contas da própria agência 2 ficam
+indisponíveis (e o app as trata como "offline", com fila).
+
+**3. O que foi reaproveitado da API existente?**
+
+Tudo do fluxo bancário: `/auth/login` (JWT), `/contas`,
+`/contas/{id}/depositar|sacar` e `/transferencias`, sem nenhuma mudança. A
+camada `servicos/api.dart` tem o mesmo papel do `api/cliente.js` do frontend
+web: escolhe a agência por `id % 3`, injeta o `Authorization: Bearer`, aplica
+timeout e traduz os erros. O print `evidencias/sprint3/app-fluxo-bancario.png`
+mostra a transferência da conta 0 (Agência 0) para a conta 1 (Agência 1)
+devolvendo a mesma mensagem do backend do Sprint 2: "Transferencia publicada
+para a agencia de destino (entrega assincrona)".
+
+---
+
+## Parte E - Sincronização offline-first no backend (seção 9.6)
+
+**1. Como o relógio vetorial detecta que uma operação feita offline está em
+conflito?**
+
+Cada conta guarda a sua **versão**, o vetor da última escrita, e o app guarda
+essa versão junto do saldo em cache. A operação feita offline leva essa versão
+como `vetorBase`, que é o **passado causal** dela: tudo o que o usuário tinha
+visto quando decidiu fazer a operação. O servidor compara `vetorBase` com a
+versão atual. Se forem **iguais**, nada aconteceu no meio. Se `vetorBase`
+vier **antes**, existe pelo menos uma escrita que não está no passado da
+operação, e a operação também não está no passado dela: as duas são
+**concorrentes**.
+
+No print `evidencias/sprint3/app-conflito-409.png`, o app conhecia
+`[40, 16, 2]` e o servidor estava em `[41, 16, 2]`, por causa de um
+`DEPOSITO 10` feito por outro cliente enquanto o app estava offline. A relação
+deu `ANTES`, e o saque de 30 voltou **409** com o saldo do servidor (R$ 135,00)
+e a escrita concorrente listada.
+
+**2. Por que não usar "a última escrita vence" pela hora do aparelho?**
+
+Porque a hora do celular não é confiável (pode estar errada ou ter sido
+ajustada) e porque o "vencedor" **apaga** a outra escrita em silêncio. Num
+banco, isso significa aplicar um saque que o usuário aprovou olhando para um
+saldo que já não existe, ou perder um depósito. O vetor não depende do relógio
+físico: ele diz com certeza se uma escrita viu a outra. Quando não viu, o
+servidor não escolhe por conta própria. Ele devolve o conflito com contexto
+para o usuário decidir. A exceção é a funcionalidade adicional: um depósito é
+comutativo e nunca invalida as outras escritas, então pode ser mesclado sem
+perguntar.
+
+**3. Quais os limites dessa detecção na nossa arquitetura?**
+
+- Como cada conta vive numa **única** agência, as versões de uma conta são
+  totalmente ordenadas entre si (vêm do mesmo processo). Na prática, a relação
+  é `IGUAIS` ou `ANTES`. `CONCORRENTES` só aparece se a agência **reiniciou**
+  (vetor zerado), e aí a base do app não vale mais: também é 409. Testei com
+  uma base `[99, 0, 0]` e voltou 409 `CONCORRENTES`.
+- A verificação e a aplicação precisam ser atômicas: um crédito via RabbitMQ
+  no meio mudaria a versão. Por isso há a trava `trava_contas`.
+- Se a resposta se perder, o app reenvia. A `idOperacao` torna o endpoint
+  idempotente (`JA_APLICADA`) e evita aplicar duas vezes.
+
+---
+
+## Parte F - App em modo offline-first (seção 10.3)
+
+**1. O que o usuário vê enquanto está offline, e o que acontece quando a
+operação entra em conflito?**
+
+A **UI otimista** mostra o saldo como se as operações da fila já tivessem sido
+aplicadas, deixando claro o que ainda não foi confirmado. No print
+`evidencias/sprint3/app-offline-fila.png`, o saldo é R$ 125,00, com
+"Confirmado no servidor: R$ 100,00 · pendente: +R$ 25,00" (depósito de 40 e
+saque de 15 "Aguardando conexao"). Ao reconectar, a fila foi enviada em ordem
+e as duas viraram `APLICADA`. Quando dá conflito, o otimismo é **desfeito**: no
+print `evidencias/sprint3/app-conflito-rollback.png`, o saque de 30 ficou
+marcado como conflito "(fora do saldo)" e o saldo voltou a ser o do servidor.
+O 409 não fica escondido: aparecem um aviso vermelho, uma faixa em todas as
+abas e o cartão com os detalhes, e a decisão (*Reaplicar* ou *Descartar*) fica
+com o usuário.
+
+**2. Por que só depósito e saque funcionam offline, e não a transferência?**
+
+Depósito e saque mexem só na própria conta: se derem conflito, basta desfazer
+o efeito na tela. A transferência tira dinheiro para **outra agência**, via
+RabbitMQ. Se ela fosse "otimista" e depois falhasse, o app teria mostrado
+como certo um crédito na conta de outra pessoa, e não há como desfazer isso do
+lado do app. Em vez de prometer algo que talvez não se confirme, o app avisa
+que transferência e criação de conta exigem conexão. Uma transferência offline
+de verdade precisaria de uma transação distribuída com compensação: o Saga do
+Sprint 4.
+
+**3. Que tipo de consistência o modo offline-first oferece?**
+
+**Consistência eventual**. Enquanto está offline, o app e o servidor divergem:
+cada um aceita escritas sem consultar o outro. É a troca do teorema CAP: o
+app prioriza **disponibilidade** (o usuário continua operando) sobre
+consistência imediata. Depois da sincronização, os dois convergem. No print
+`evidencias/sprint3/funcionalidade-adicional.png`, o depósito offline de 20 e
+o saque concorrente de 10 resultaram no mesmo saldo nos dois lados. O relógio
+vetorial é o que torna essa convergência **segura**: ele separa "aplicar sem
+risco" (iguais, ou depósito comutativo) de "precisa de decisão humana" (saque
+concorrente), em vez de sobrescrever às cegas.
+
+---
+
 # Sprint 2 - Mensageria (Pub/Sub) + Relógio vetorial
 
 **Aluna:** Lara Carvalho
